@@ -1,0 +1,13 @@
+train: /root/yolov11/datasets/data/train/images
+val: /root/yolov11/datasets/data/valid/images
+test: /root/yolov11/datasets/data/test/images
+
+nc: 12
+names: ['ALS', 'Angular Leafspot', 'Anthracnose Fruit Rot', 'Bean Rust', 'Blossom Blight', 'Gray Mold', 'Leaf Spot', 'Powdery Mildew Fruit', 'Powdery Mildew Leaf', 'disease', 'leaf mold', 'spider mites']
+
+roboflow:
+  workspace: parkingspace-93kda
+  project: plant-disease-d6iv1
+  version: 1
+  license: Public Domain
+  url: https://universe.roboflow.com/parkingspace-93kda/plant-disease-d6iv1/dataset/1

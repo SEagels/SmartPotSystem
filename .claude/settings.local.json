@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(python -m seed_data.seed_demo)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(rm -f \"D:/毕业设计/SmartPotSystem/backend/storage/smartpot.db\")",
+      "Read(//c/Users/Scott/.claude/plugins/cache/ui-ux-pro-max-skill/ui-ux-pro-max/2.5.0/.claude/skills/ui-ux-pro-max/**)",
+      "Bash(python skills/ui-ux-pro-max/scripts/search.py \"smart home IoT plant monitoring dashboard nature fresh clean\" --design-system -p \"SmartPot\" -f markdown)",
+      "Bash(python scripts/search.py \"smart home IoT plant monitoring dashboard nature fresh clean\" --design-system -p \"SmartPot\" -f markdown)",
+      "Bash(python scripts/search.py \"nature organic fresh green plant wellness\" --domain style -n 5)",
+      "Bash(python scripts/search.py \"nature plant green organic fresh\" --domain color -n 5)",
+      "Bash(python scripts/search.py \"dashboard monitoring IoT real-time sensors cards\" --domain ux -n 5)",
+      "Bash(python scripts/search.py \"natural organic clean modern readable\" --domain typography -n 5)",
+      "Bash(npm run *)"
+    ]
+  }
+}

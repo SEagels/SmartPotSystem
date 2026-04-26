@@ -1,0 +1,112 @@
+[
+  {
+    "plant_type": "monstera_deliciosa",
+    "name": "龟背竹",
+    "category": "foliage",
+    "default_thresholds": {
+      "temperature": {"min": 15.0, "max": 32.0},
+      "humidity": {"min": 40.0, "max": 85.0},
+      "soil_moisture": {"min": 30.0, "max": 70.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 25.0, "default_duration_ms": 8000}
+  },
+  {
+    "plant_type": "epipremnum_aureum",
+    "name": "绿萝",
+    "category": "foliage",
+    "default_thresholds": {
+      "temperature": {"min": 10.0, "max": 35.0},
+      "humidity": {"min": 30.0, "max": 90.0},
+      "soil_moisture": {"min": 20.0, "max": 80.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 20.0, "default_duration_ms": 5000}
+  },
+  {
+    "plant_type": "phalaenopsis",
+    "name": "蝴蝶兰",
+    "category": "flowering",
+    "default_thresholds": {
+      "temperature": {"min": 18.0, "max": 28.0},
+      "humidity": {"min": 50.0, "max": 80.0},
+      "soil_moisture": {"min": 40.0, "max": 75.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 35.0, "default_duration_ms": 3000}
+  },
+  {
+    "plant_type": "aloe_vera",
+    "name": "芦荟",
+    "category": "succulent",
+    "default_thresholds": {
+      "temperature": {"min": 10.0, "max": 35.0},
+      "humidity": {"min": 20.0, "max": 60.0},
+      "soil_moisture": {"min": 10.0, "max": 50.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 15.0, "default_duration_ms": 3000}
+  },
+  {
+    "plant_type": "sansevieria",
+    "name": "虎尾兰",
+    "category": "succulent",
+    "default_thresholds": {
+      "temperature": {"min": 12.0, "max": 35.0},
+      "humidity": {"min": 20.0, "max": 60.0},
+      "soil_moisture": {"min": 10.0, "max": 50.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 15.0, "default_duration_ms": 2000}
+  },
+  {
+    "plant_type": "spathiphyllum",
+    "name": "白掌",
+    "category": "foliage",
+    "default_thresholds": {
+      "temperature": {"min": 16.0, "max": 30.0},
+      "humidity": {"min": 45.0, "max": 85.0},
+      "soil_moisture": {"min": 35.0, "max": 75.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 30.0, "default_duration_ms": 5000}
+  },
+  {
+    "plant_type": "pothos",
+    "name": "黄金葛",
+    "category": "foliage",
+    "default_thresholds": {
+      "temperature": {"min": 12.0, "max": 35.0},
+      "humidity": {"min": 30.0, "max": 85.0},
+      "soil_moisture": {"min": 20.0, "max": 75.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 22.0, "default_duration_ms": 4000}
+  },
+  {
+    "plant_type": "chlorophytum",
+    "name": "吊兰",
+    "category": "foliage",
+    "default_thresholds": {
+      "temperature": {"min": 10.0, "max": 30.0},
+      "humidity": {"min": 35.0, "max": 80.0},
+      "soil_moisture": {"min": 25.0, "max": 70.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 25.0, "default_duration_ms": 4000}
+  },
+  {
+    "plant_type": "anthurium",
+    "name": "红掌",
+    "category": "flowering",
+    "default_thresholds": {
+      "temperature": {"min": 18.0, "max": 30.0},
+      "humidity": {"min": 50.0, "max": 85.0},
+      "soil_moisture": {"min": 35.0, "max": 75.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 30.0, "default_duration_ms": 4000}
+  },
+  {
+    "plant_type": "zamioculcas",
+    "name": "金钱树",
+    "category": "foliage",
+    "default_thresholds": {
+      "temperature": {"min": 15.0, "max": 32.0},
+      "humidity": {"min": 30.0, "max": 70.0},
+      "soil_moisture": {"min": 15.0, "max": 55.0}
+    },
+    "watering_cfg": {"trigger_soil_moisture": 18.0, "default_duration_ms": 3000}
+  }
+]
