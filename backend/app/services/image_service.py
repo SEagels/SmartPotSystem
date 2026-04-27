@@ -80,6 +80,31 @@ async def update_detection_result(
     return image
 
 
+async def reset_images_for_re_detection(db: AsyncSession, device_id: str) -> int:
+    from sqlalchemy import delete as sql_delete
+
+    result = await db.execute(
+        select(Image).where(
+            Image.device_id == device_id,
+            Image.detection_status.in_(["completed", "failed"]),
+        )
+    )
+    images = list(result.scalars().all())
+    if not images:
+        return 0
+
+    image_ids = [img.image_id for img in images]
+    await db.execute(sql_delete(Detection).where(Detection.image_id.in_(image_ids)))
+
+    for img in images:
+        img.detection_status = "pending_detection"
+        img.health_score = None
+        img.disease_count = 0
+
+    await db.flush()
+    return len(images)
+
+
 async def list_images(
     db: AsyncSession, device_id: str, date_str: str | None = None, limit: int = 50
 ) -> list[Image]:

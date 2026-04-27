@@ -44,3 +44,8 @@ export async function getWeeklyReport(deviceId: string, date: string) {
   const res = await client.get(`/devices/${deviceId}/reports/weekly`, { params: { date } });
   return res.data.data as WeeklyReport;
 }
+
+export async function generateReport(deviceId: string, date?: string) {
+  const res = await client.post(`/devices/${deviceId}/reports/generate`, null, { params: date ? { date } : {} });
+  return res.data.data as DailyReport;
+}

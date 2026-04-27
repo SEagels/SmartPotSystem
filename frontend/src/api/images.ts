@@ -52,6 +52,11 @@ export async function getImageDetail(deviceId: string, imageId: string) {
   return res.data.data as ImageDetail;
 }
 
+export async function reDetectImages(deviceId: string) {
+  const res = await client.post(`/devices/${deviceId}/images/re-detect`);
+  return res.data as { code: number; message: string; data: { count: number } };
+}
+
 export async function uploadImage(deviceId: string, formData: FormData) {
   const res = await client.post(`/devices/${deviceId}/images`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

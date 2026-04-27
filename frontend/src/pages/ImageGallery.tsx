@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Typography, Spin, Empty, Image, Tag, DatePicker, Button } from 'antd';
-import { EyeOutlined } from '@ant-design/icons';
-import { getImages, type ImageItem } from '../api/images';
+import { Row, Col, Card, Typography, Spin, Empty, Image, Tag, DatePicker, Button, message, Popconfirm } from 'antd';
+import { EyeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { getImages, reDetectImages, type ImageItem } from '../api/images';
 import { formatDateTime, formatDate } from '../utils/format';
 
 const { Title, Text } = Typography;
@@ -20,15 +20,49 @@ export default function ImageGallery() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState<string | null>(null);
+  const [reDetecting, setReDetecting] = useState(false);
 
+  // 七天清除：记录最新访问时间
   useEffect(() => {
+    if (!deviceId) return;
+    const key = `smartpot_images_last_visit_${deviceId}`;
+    const lastVisit = localStorage.getItem(key);
+    const now = Date.now();
+    if (lastVisit) {
+      const elapsed = now - parseInt(lastVisit, 10);
+      if (elapsed > 7 * 24 * 60 * 60 * 1000) {
+        localStorage.removeItem(key);
+      }
+    }
+    localStorage.setItem(key, String(now));
+  }, [deviceId]);
+
+  const fetchImages = () => {
     if (!deviceId) return;
     setLoading(true);
     getImages(deviceId, date ?? undefined)
       .then(setImages)
       .catch(() => setImages([]))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchImages();
   }, [deviceId, date]);
+
+  const handleReDetect = async () => {
+    if (!deviceId) return;
+    setReDetecting(true);
+    try {
+      const res = await reDetectImages(deviceId);
+      message.success(res.message || '重新检测已启动');
+      setTimeout(() => fetchImages(), 2000);
+    } catch {
+      message.error('重新检测请求失败');
+    } finally {
+      setReDetecting(false);
+    }
+  };
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><Spin size="large" /></div>;
@@ -43,10 +77,23 @@ export default function ImageGallery() {
           </Button>
           <Title level={4} style={{ margin: '8px 0 0' }}>叶片图像</Title>
         </div>
-        <DatePicker
-          onChange={(d) => setDate(d ? formatDate(d.toISOString()) : null)}
-          placeholder="按日期筛选"
-        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <DatePicker
+            onChange={(d) => setDate(d ? formatDate(d.toISOString()) : null)}
+            placeholder="按日期筛选"
+          />
+          <Popconfirm
+            title="重新检测"
+            description="将当前设备所有已完成/失败的图像重置为等待检测状态，使用新模型推理。确定要继续吗？"
+            onConfirm={handleReDetect}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button icon={<ReloadOutlined />} loading={reDetecting}>
+              重新检测
+            </Button>
+          </Popconfirm>
+        </div>
       </div>
 
       {images.length === 0 ? (

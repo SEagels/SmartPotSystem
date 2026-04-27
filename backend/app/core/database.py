@@ -65,7 +65,7 @@ async def init_db() -> None:
     # 开发环境：自动填充种子数据，失败不影响启动
     if settings.IS_DEV:
         try:
-            from seed_data.seed_plant_types import seed_plant_types
+            from seed_data.seed import seed_plant_types
             await seed_plant_types()
         except Exception:
             pass

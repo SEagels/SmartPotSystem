@@ -12,7 +12,6 @@ import DiseaseHistory from './pages/DiseaseHistory';
 import Alerts from './pages/Alerts';
 import Reports from './pages/Reports';
 import PlantTypes from './pages/PlantTypes';
-import DeviceSettings from './pages/DeviceSettings';
 
 // ── 路由守卫 ──
 // loading 阶段渲染全屏 Spin，避免 token 校验未完成时闪出登录页
@@ -41,7 +40,6 @@ export default function App() {
         <Route path="devices/:deviceId/images/:imageId" element={<ImageDetail />} />
         <Route path="devices/:deviceId/diseases" element={<DiseaseHistory />} />
         <Route path="devices/:deviceId/reports" element={<Reports />} />
-        <Route path="devices/:deviceId/settings" element={<DeviceSettings />} />
         <Route path="alerts" element={<Alerts />} />
         <Route path="plants" element={<PlantTypes />} />
       </Route>

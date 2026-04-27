@@ -1,2 +1,7 @@
 
 frontend/node_modules/
+__pycache__/
+*.pyc
+.env
+backend/.env
+backend/storage/report_cache/

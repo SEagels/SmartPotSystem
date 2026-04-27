@@ -7,8 +7,12 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.router import router
 from app.config import settings
@@ -95,6 +99,11 @@ app.add_middleware(
 
 # 所有业务路由统一注册在 /v1 前缀下
 app.include_router(router)
+
+# 挂载静态文件目录（病害图片等）
+_static_dir = Path(__file__).resolve().parent.parent / "storage" / "images"
+if _static_dir.exists():
+    app.mount("/static/images", StaticFiles(directory=str(_static_dir)), name="static_images")
 
 
 @app.get("/health")

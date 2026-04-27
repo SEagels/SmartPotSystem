@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, Typography, Spin, Empty, Row, Col, Modal, Descriptions, Tag } from 'antd';
-import { getPlants, type PlantTypeItem } from '../api/plants';
+import { Card, Typography, Spin, Empty, Row, Col, Modal, Descriptions, Tag, Button, Form, Input, Select, InputNumber, Divider, message } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
+import { getPlants, createPlant, type PlantTypeItem, type CreatePlantData } from '../api/plants';
 
 const { Title, Text } = Typography;
 
@@ -11,17 +12,45 @@ const CATEGORY_LABELS: Record<string, string> = {
   herb: '草本植物',
 };
 
+const CATEGORY_OPTIONS = [
+  { value: 'foliage', label: '观叶植物' },
+  { value: 'succulent', label: '多肉植物' },
+  { value: 'flowering', label: '观花植物' },
+  { value: 'herb', label: '草本植物' },
+];
+
 export default function PlantTypes() {
   const [plants, setPlants] = useState<PlantTypeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<PlantTypeItem | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
 
-  useEffect(() => {
+  const fetchPlants = () => {
+    setLoading(true);
     getPlants()
       .then(setPlants)
       .catch(() => setPlants([]))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchPlants(); }, []);
+
+  const handleAdd = async (values: CreatePlantData) => {
+    setSaving(true);
+    try {
+      await createPlant(values);
+      message.success('品种添加成功');
+      setAddOpen(false);
+      form.resetFields();
+      fetchPlants();
+    } catch {
+      // handled by interceptor
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><Spin size="large" /></div>;
@@ -29,10 +58,15 @@ export default function PlantTypes() {
 
   return (
     <div className="page-container">
-      <Title level={4}>植物品种</Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-        选择植物品种后，系统将自动配置最佳养护参数
-      </Text>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>植物品种</Title>
+          <Text type="secondary">选择植物品种后，系统将自动配置最佳养护参数</Text>
+        </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddOpen(true)} style={{ borderRadius: 10 }}>
+          添加品种
+        </Button>
+      </div>
 
       {plants.length === 0 ? (
         <Empty description="暂无植物品种数据" />
@@ -90,6 +124,85 @@ export default function PlantTypes() {
             </Descriptions.Item>
           </Descriptions>
         )}
+      </Modal>
+
+      <Modal
+        title="添加植物品种"
+        open={addOpen}
+        onCancel={() => { setAddOpen(false); form.resetFields(); }}
+        onOk={() => form.submit()}
+        confirmLoading={saving}
+        width={560}
+      >
+        <Form form={form} layout="vertical" onFinish={handleAdd} style={{ marginTop: 16 }}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="plant_type" label="品种代码" rules={[{ required: true, message: '请输入品种代码（英文）' }]}>
+                <Input placeholder="例如: rose" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="name" label="品种名称" rules={[{ required: true }]}>
+                <Input placeholder="例如: 玫瑰" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="category" label="类别" rules={[{ required: true }]}>
+            <Select options={CATEGORY_OPTIONS} placeholder="选择植物类别" />
+          </Form.Item>
+          <Divider style={{ margin: '8px 0' }}>默认温度阈值</Divider>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name={['default_thresholds', 'temperature', 'min']} label="最低温度(°C)" initialValue={15}>
+                <InputNumber style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name={['default_thresholds', 'temperature', 'max']} label="最高温度(°C)" initialValue={30}>
+                <InputNumber style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Divider style={{ margin: '8px 0' }}>默认湿度阈值</Divider>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name={['default_thresholds', 'humidity', 'min']} label="最低湿度(%)" initialValue={30}>
+                <InputNumber style={{ width: '100%' }} min={0} max={100} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name={['default_thresholds', 'humidity', 'max']} label="最高湿度(%)" initialValue={80}>
+                <InputNumber style={{ width: '100%' }} min={0} max={100} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Divider style={{ margin: '8px 0' }}>默认土壤湿度阈值</Divider>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name={['default_thresholds', 'soil_moisture', 'min']} label="最低土壤湿度(%)" initialValue={20}>
+                <InputNumber style={{ width: '100%' }} min={0} max={100} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name={['default_thresholds', 'soil_moisture', 'max']} label="最高土壤湿度(%)" initialValue={70}>
+                <InputNumber style={{ width: '100%' }} min={0} max={100} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Divider style={{ margin: '8px 0' }}>补水配置</Divider>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name={['watering_cfg', 'trigger_soil_moisture']} label="补水触发土壤湿度(%)" initialValue={25}>
+                <InputNumber style={{ width: '100%' }} min={0} max={100} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name={['watering_cfg', 'default_duration_ms']} label="默认补水时长(毫秒)" initialValue={5000}>
+                <InputNumber style={{ width: '100%' }} min={1000} step={1000} />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
       </Modal>
     </div>
   );

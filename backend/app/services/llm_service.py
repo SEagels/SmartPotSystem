@@ -1,10 +1,25 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 
 import httpx
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting from LLM output for plain-text display."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    text = re.sub(r"#{1,6}\s*", "", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+    return text.strip()
 
 _RULE_MESSAGES = {
     "good": [
@@ -28,13 +43,26 @@ _RULE_MESSAGES = {
     ],
 }
 
+# 根据 API URL 自动选择模型名称
+def _pick_model(url: str) -> str:
+    url_lower = url.lower()
+    if "deepseek" in url_lower:
+        return "deepseek-chat"
+    if "dashscope" in url_lower or "aliyun" in url_lower:
+        return "qwen-plus"
+    if "bigmodel" in url_lower:
+        return "glm-4-flash"
+    return "gpt-4o-mini"
+
 
 async def generate_llm_suggestion(context: dict) -> tuple[str, dict]:
     if settings.LLM_API_KEY:
         try:
-            return await _call_llm(context), {}
-        except Exception:
-            pass
+            result = await _call_llm(context)
+            logger.info("LLM 养护建议生成成功")
+            return result, {}
+        except Exception as e:
+            logger.warning("LLM 调用失败，回退到规则建议: %s", e)
     return generate_suggestion(
         context.get("environment_summary", {}),
         context.get("watering_count", 0),
@@ -87,17 +115,34 @@ def generate_suggestion(
 
 
 async def _call_llm(context: dict) -> str:
-    prompt = f"""你是一位专业的园艺养护顾问。请根据以下植物传感器数据，用中文给出一段简短的养护建议（50-100字）：
+    env = context.get("environment_summary", {})
+    has_data = any(
+        env.get(k, {}).get("avg") is not None
+        for k in ("temperature", "humidity", "soil_moisture")
+    )
 
-环境数据：{json.dumps(context, ensure_ascii=False)}
+    if has_data:
+        data_block = f"环境数据：{json.dumps(context, ensure_ascii=False)}"
+        hint = ""
+    else:
+        data_block = f"上下文：{json.dumps(context, ensure_ascii=False)}"
+        hint = "（注意：目前暂无传感器数据，请根据上下文给出通用养护提醒，建议用户先检查设备是否在线。）"
 
-请从浇水、光照、温度、病害四个方面给出建议。语气亲切自然。"""
+    prompt = f"""你是一位专业的园艺养护顾问。请根据以下植物传感器数据，用中文给出一段简短的养护建议（80-150字）：
 
-    async with httpx.AsyncClient(timeout=15) as client:
+{data_block}
+{hint}
+请从浇水、光照、温度、病害四个方面给出建议。如果有异常指标请重点提醒。语气亲切自然，像一位细心的园丁朋友。回答中不要使用任何 Markdown 格式标记（如 ** 或 # 等）。"""
+
+    model = _pick_model(settings.LLM_API_URL)
+    logger.info("调用 LLM: url=%s model=%s", settings.LLM_API_URL, model)
+    async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(
             settings.LLM_API_URL,
             headers={"Authorization": f"Bearer {settings.LLM_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "max_tokens": 200},
+            json={"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 300},
         )
+        resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        raw = data["choices"][0]["message"]["content"]
+        return _strip_markdown(raw)

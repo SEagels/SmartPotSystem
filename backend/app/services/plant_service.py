@@ -22,6 +22,20 @@ async def get_by_type(db: AsyncSession, plant_type: str) -> dict | None:
     return _plant_to_dict(p)
 
 
+async def create_plant(db: AsyncSession, data: dict) -> dict:
+    import json as _json
+    pt = PlantType(
+        plant_type=data["plant_type"],
+        name=data["name"],
+        category=data["category"],
+        default_thresholds=_json.dumps(data["default_thresholds"], ensure_ascii=False),
+        watering_cfg=_json.dumps(data["watering_cfg"], ensure_ascii=False),
+    )
+    db.add(pt)
+    await db.flush()
+    return _plant_to_dict(pt)
+
+
 def _plant_to_dict(p: PlantType) -> dict:
     return {
         "plant_type": p.plant_type,

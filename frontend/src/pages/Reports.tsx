@@ -1,13 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Spin, Empty, Descriptions, Tag, Row, Col, DatePicker, Segmented, Button, Space } from 'antd';
+import { Card, Typography, Spin, Empty, Descriptions, Tag, Row, Col, DatePicker, Segmented, Button, Space, Result, message } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
-import { getDailyReport, getWeeklyReport, type DailyReport, type WeeklyReport } from '../api/reports';
+import { getDailyReport, getWeeklyReport, generateReport, type DailyReport, type WeeklyReport } from '../api/reports';
 import { formatDate, formatDateTime } from '../utils/format';
 import HealthGauge from '../components/HealthGauge';
 import dayjs from 'dayjs';
 
 const { Title, Text, Paragraph } = Typography;
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+function getStorageKey(deviceId: string) {
+  return `smartpot_reports_last_visit_${deviceId}`;
+}
 
 export default function Reports() {
   const { deviceId } = useParams<{ deviceId: string }>();
@@ -17,8 +24,24 @@ export default function Reports() {
   const [daily, setDaily] = useState<DailyReport | null>(null);
   const [weekly, setWeekly] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
+  // 七天清除：记录最新访问时间到 localStorage
   useEffect(() => {
+    if (!deviceId) return;
+    const key = getStorageKey(deviceId);
+    const lastVisit = localStorage.getItem(key);
+    const now = Date.now();
+    if (lastVisit) {
+      const elapsed = now - parseInt(lastVisit, 10);
+      if (elapsed > SEVEN_DAYS_MS) {
+        localStorage.removeItem(key);
+      }
+    }
+    localStorage.setItem(key, String(now));
+  }, [deviceId]);
+
+  const fetchReport = useCallback(() => {
     if (!deviceId) return;
     setLoading(true);
     if (mode === 'daily') {
@@ -33,6 +56,22 @@ export default function Reports() {
         .finally(() => setLoading(false));
     }
   }, [deviceId, mode, date]);
+
+  useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  const handleGenerate = async () => {
+    if (!deviceId) return;
+    setGenerating(true);
+    try {
+      const data = await generateReport(deviceId, date);
+      setDaily(data);
+      message.success('养护报告已通过大模型生成');
+    } catch {
+      // handled
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><Spin size="large" /></div>;
@@ -68,7 +107,7 @@ export default function Reports() {
             <Card bordered={false} style={{ borderRadius: 16, textAlign: 'center' }}>
               <Title level={5}>健康评分</Title>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <HealthGauge score={daily.health_score} size={140} />
+                <HealthGauge score={daily.health_score ?? 0} size={140} />
               </div>
             </Card>
           </Col>
@@ -77,6 +116,7 @@ export default function Reports() {
               <Row gutter={[16, 16]}>
                 {(['temperature', 'humidity', 'soil_moisture'] as const).map((key) => {
                   const d = daily.environment_summary[key];
+                  const hasData = d.avg != null;
                   return (
                     <Col span={8} key={key}>
                       <Card size="small" bordered style={{ textAlign: 'center', borderRadius: 8 }}>
@@ -84,10 +124,10 @@ export default function Reports() {
                           {{ temperature: '温度', humidity: '湿度', soil_moisture: '土壤湿度' }[key]}
                         </Text>
                         <div style={{ fontSize: 22, fontWeight: 700, color: '#4caf50' }}>
-                          {d.avg.toFixed(1)}{{ temperature: '°C', humidity: '%', soil_moisture: '%' }[key]}
+                          {hasData ? `${d.avg!.toFixed(1)}{{ temperature: '°C', humidity: '%', soil_moisture: '%' }[key]}` : '--'}
                         </div>
                         <Text type="secondary" style={{ fontSize: 11 }}>
-                          {d.min.toFixed(1)} ~ {d.max.toFixed(1)}
+                          {hasData ? `${d.min!.toFixed(1)} ~ ${d.max!.toFixed(1)}` : '暂无数据'}
                         </Text>
                       </Card>
                     </Col>
@@ -128,7 +168,7 @@ export default function Reports() {
             <Card bordered={false} style={{ borderRadius: 16, textAlign: 'center' }}>
               <Title level={5}>周均健康分</Title>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <HealthGauge score={Math.round(weekly.avg_health_score)} size={140} />
+                <HealthGauge score={weekly.avg_health_score != null ? Math.round(weekly.avg_health_score) : 0} size={140} />
               </div>
               <Tag style={{ marginTop: 8 }} color={weekly.trend === 'improving' ? 'green' : weekly.trend === 'declining' ? 'red' : 'blue'}>
                 {{ improving: '↗ 上升', stable: '→ 稳定', declining: '↘ 下降' }[weekly.trend] ?? weekly.trend}
@@ -176,9 +216,9 @@ export default function Reports() {
                 <Descriptions.Item label="周补水总量">{weekly.total_watering_ml} ml</Descriptions.Item>
                 <Descriptions.Item label="病害告警数">{weekly.disease_alert_count}</Descriptions.Item>
                 <Descriptions.Item label="环比健康分变化">
-                  <Text style={{ color: weekly.comparison_with_last_week.health_score_change >= 0 ? '#4caf50' : '#f5222d' }}>
-                    {weekly.comparison_with_last_week.health_score_change >= 0 ? '+' : ''}
-                    {weekly.comparison_with_last_week.health_score_change.toFixed(1)}
+                  <Text style={{ color: (weekly.comparison_with_last_week.health_score_change ?? 0) >= 0 ? '#4caf50' : '#f5222d' }}>
+                    {(weekly.comparison_with_last_week.health_score_change ?? 0) >= 0 ? '+' : ''}
+                    {(weekly.comparison_with_last_week.health_score_change ?? 0).toFixed(1)}
                   </Text>
                 </Descriptions.Item>
               </Descriptions>
@@ -194,7 +234,21 @@ export default function Reports() {
           )}
         </Row>
       ) : (
-        <Card bordered={false} style={{ borderRadius: 16 }}><Empty description="暂无报告数据" /></Card>
+        <Card bordered={false} style={{ borderRadius: 16 }}>
+          <Result
+            icon={<ReloadOutlined />}
+            title="暂无报告数据"
+            subTitle="当前日期暂无养护数据，可手动调用大模型生成养护报告。若未配置 LLM_API_KEY，系统将使用内置规则生成建议。"
+            extra={
+              <Space>
+                <Button onClick={fetchReport}>重新加载</Button>
+                <Button type="primary" loading={generating} onClick={handleGenerate}>
+                  生成养护报告
+                </Button>
+              </Space>
+            }
+          />
+        </Card>
       )}
     </div>
   );

@@ -76,3 +76,13 @@ async def get_image_detail(
         return {"code": 0, "message": "success", "data": detail}
     except ValueError as e:
         return {"code": 3001, "message": str(e), "data": None}
+
+
+@router.post("/re-detect")
+async def re_detect_images(
+    device: Device = Depends(get_current_device),
+    db: AsyncSession = Depends(get_db),
+):
+    count = await image_service.reset_images_for_re_detection(db, device.device_id)
+    await db.commit()
+    return {"code": 0, "message": f"已重置 {count} 张图像的检测状态，正在重新推理", "data": {"count": count}}

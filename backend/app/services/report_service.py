@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import os
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -11,6 +14,99 @@ from app.models.image import Image
 from app.models.telemetry import Telemetry
 from app.models.watering import WateringEvent
 
+logger = logging.getLogger(__name__)
+
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "storage", "report_cache")
+CACHE_TTL_HOURS = 3
+
+
+def _data_fingerprint(context: dict) -> str:
+    """MD5 hash of key sensor metrics for cache comparison."""
+    env = context.get("environment_summary", {})
+    key_data = (
+        env.get("temperature", {}).get("avg"),
+        env.get("humidity", {}).get("avg"),
+        env.get("soil_moisture", {}).get("avg"),
+        context.get("watering_count", 0),
+        context.get("health_score", 100),
+        context.get("disease_alert", False),
+    )
+    return hashlib.md5(str(key_data).encode()).hexdigest()
+
+
+def _context_changed_significantly(old_ctx: dict, new_ctx: dict) -> bool:
+    """Return True if environmental data changed enough to warrant a fresh LLM call."""
+    old_env = old_ctx.get("environment_summary", {})
+    new_env = new_ctx.get("environment_summary", {})
+    for key in ("temperature", "humidity", "soil_moisture"):
+        old_avg = old_env.get(key, {}).get("avg")
+        new_avg = new_env.get(key, {}).get("avg")
+        if old_avg is not None and new_avg is not None:
+            if abs(new_avg - old_avg) > 5:
+                return True
+
+    if abs(new_ctx.get("watering_count", 0) - old_ctx.get("watering_count", 0)) > 1:
+        return True
+    if abs(new_ctx.get("health_score", 100) - old_ctx.get("health_score", 100)) > 10:
+        return True
+    if new_ctx.get("disease_alert") != old_ctx.get("disease_alert"):
+        return True
+
+    return False
+
+
+def _load_cache(device_id: str, date_str: str) -> dict | None:
+    cache_path = os.path.join(CACHE_DIR, f"{device_id}_{date_str}.json")
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_cache(device_id: str, date_str: str, data: dict) -> None:
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = os.path.join(CACHE_DIR, f"{device_id}_{date_str}.json")
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+async def _get_cached_suggestion(
+    device_id: str,
+    date_str: str,
+    llm_context: dict,
+) -> tuple[str, dict]:
+    """Return cached suggestion if data hasn't changed significantly and TTL not expired."""
+    new_fp = _data_fingerprint(llm_context)
+    cached = _load_cache(device_id, date_str)
+
+    if cached and cached.get("fingerprint"):
+        generated_at = datetime.fromisoformat(cached["generated_at"])
+        age_hours = (datetime.now(UTC) - generated_at).total_seconds() / 3600
+        if age_hours < CACHE_TTL_HOURS:
+            if cached["fingerprint"] == new_fp:
+                logger.info("缓存命中(数据相同): device=%s date=%s age=%.1fh", device_id, date_str, age_hours)
+                return cached["suggestion"], cached.get("suggestion_detail", {})
+            if cached.get("context") and not _context_changed_significantly(cached["context"], llm_context):
+                logger.info("缓存命中(数据相近): device=%s date=%s age=%.1fh", device_id, date_str, age_hours)
+                return cached["suggestion"], cached.get("suggestion_detail", {})
+
+    from app.services.llm_service import generate_llm_suggestion
+
+    suggestion, suggestion_detail = await generate_llm_suggestion(llm_context)
+
+    _save_cache(device_id, date_str, {
+        "fingerprint": new_fp,
+        "context": llm_context,
+        "suggestion": suggestion,
+        "suggestion_detail": suggestion_detail,
+        "generated_at": datetime.now(UTC).isoformat(),
+    })
+    logger.info("缓存已保存: device=%s date=%s", device_id, date_str)
+    return suggestion, suggestion_detail
+
 
 async def generate_daily_report(db: AsyncSession, device_id: str, date_str: str) -> dict:
     day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
@@ -20,6 +116,26 @@ async def generate_daily_report(db: AsyncSession, device_id: str, date_str: str)
         select(Telemetry).where(Telemetry.device_id == device_id, Telemetry.time.between(day_start, day_end))
     )
     telemetries = t_result.scalars().all()
+
+    data_source_date = date_str
+    if not telemetries:
+        latest_result = await db.execute(
+            select(Telemetry).where(Telemetry.device_id == device_id).order_by(Telemetry.time.desc()).limit(1)
+        )
+        latest = latest_result.scalar_one_or_none()
+        if latest:
+            latest_day_start = latest.time.replace(hour=0, minute=0, second=0, microsecond=0)
+            latest_day_end = latest_day_start + timedelta(days=1)
+            fallback_result = await db.execute(
+                select(Telemetry).where(
+                    Telemetry.device_id == device_id,
+                    Telemetry.time.between(latest_day_start, latest_day_end),
+                )
+            )
+            telemetries = fallback_result.scalars().all()
+            data_source_date = latest.time.strftime("%Y-%m-%d")
+            day_start = latest_day_start
+            day_end = latest_day_end
 
     def _stats(attr):
         vals = [getattr(r, attr) for r in telemetries if getattr(r, attr) is not None]
@@ -63,13 +179,18 @@ async def generate_daily_report(db: AsyncSession, device_id: str, date_str: str)
     health_scores = [r for r, in scores_result]
     health_score = round(sum(health_scores) / len(health_scores)) if health_scores else None
 
-    from app.services.llm_service import generate_suggestion
     env_data = {
         "temperature": _stats("temperature"),
         "humidity": _stats("humidity"),
         "soil_moisture": _stats("soil_moisture"),
     }
-    suggestion, suggestion_detail = generate_suggestion(env_data, w_count, health_score or 100)
+    llm_context = {
+        "environment_summary": env_data,
+        "watering_count": w_count,
+        "health_score": health_score or 100,
+        "disease_alert": a_count > 0,
+    }
+    suggestion, suggestion_detail = await _get_cached_suggestion(device_id, date_str, llm_context)
 
     return {
         "date": date_str,
@@ -161,8 +282,11 @@ async def generate_weekly_report(db: AsyncSession, device_id: str, date_str: str
     else:
         trend = "stable"
 
-    from app.services.llm_service import generate_suggestion
-    suggestion, _ = generate_suggestion({}, w_count, avg_health or 100)
+    suggestion, _ = await _get_cached_suggestion(device_id, f"weekly_{date_str}", {
+        "watering_count": w_count,
+        "health_score": avg_health or 100,
+        "trend": trend,
+    })
 
     return {
         "week_start": week_start.strftime("%Y-%m-%d"),

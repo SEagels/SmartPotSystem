@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Typography, Tabs, Spin, Button, message } from 'antd';
-import { ArrowLeftOutlined, CameraOutlined } from '@ant-design/icons';
-import { getDevice, type DeviceDetail as DeviceDetailType } from '../api/devices';
+import { Row, Col, Card, Typography, Tabs, Spin, Button, message, Image, Tag, Empty, Form, Input, Select, Popconfirm, Divider } from 'antd';
+import { ArrowLeftOutlined, CameraOutlined, PictureOutlined, FileTextOutlined } from '@ant-design/icons';
+import { getDevice, updateDevice, unbindDevice, type DeviceDetail as DeviceDetailType } from '../api/devices';
 import { getLatestTelemetry, type LatestTelemetry } from '../api/telemetry';
 import { sendPhotoCommand } from '../api/control';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -12,15 +12,14 @@ import HealthGauge from '../components/HealthGauge';
 import DeviceStatusDot from '../components/DeviceStatusDot';
 import WateringControl from '../components/WateringControl';
 import { getHistory, type HistoryDataPoint } from '../api/telemetry';
+import { getImages, type ImageItem } from '../api/images';
+import { getDailyReport, type DailyReport } from '../api/reports';
+import { getPlants, type PlantTypeItem } from '../api/plants';
+import { formatDate, formatDateTime } from '../utils/format';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
-// ── 设备详情页 ──
-// 核心数据流：
-//   1. 初始化 → 并行请求设备信息 + 最新遥测（Promise.all）
-//   2. 实时更新 → WebSocket telemetry_update 增量合并到当前遥测状态
-//   3. 历史图表 → 切换指标时 fetchChart 拉取近 24 小时 15 分钟间隔聚合数据
-// Tab 结构：概览 / 历史曲线 / 叶片图像 / 养护报告 / 设备设置
+// 设备详情页 —— 一级页面概览集成传感器、图片预览、报告摘要、设备设置
 export default function DeviceDetail() {
   const { deviceId } = useParams<{ deviceId: string }>();
   const navigate = useNavigate();
@@ -32,7 +31,16 @@ export default function DeviceDetail() {
   const [chartData, setChartData] = useState<HistoryDataPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
 
-  // 并行加载设备元信息 + 最新传感器数据，遥测失败不阻塞设备信息展示
+  const [recentImages, setRecentImages] = useState<ImageItem[]>([]);
+  const [imagesLoading, setImagesLoading] = useState(false);
+
+  const [latestReport, setLatestReport] = useState<DailyReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const [plants, setPlants] = useState<PlantTypeItem[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [settingsForm] = Form.useForm();
+
   const fetchDevice = useCallback(async () => {
     if (!deviceId) return;
     try {
@@ -42,14 +50,27 @@ export default function DeviceDetail() {
       ]);
       setDevice(dev);
       setTelemetry(latest);
+
+      setImagesLoading(true);
+      setReportLoading(true);
+      getImages(deviceId)
+        .then((imgs) => setRecentImages(imgs.slice(0, 3)))
+        .catch(() => setRecentImages([]))
+        .finally(() => setImagesLoading(false));
+      getDailyReport(deviceId, formatDate(new Date().toISOString()))
+        .then(setLatestReport)
+        .catch(() => setLatestReport(null))
+        .finally(() => setReportLoading(false));
+      getPlants()
+        .then(setPlants)
+        .catch(() => setPlants([]));
     } catch {
-      // 错误由 Axios 拦截器统一处理
+      // handled
     } finally {
       setLoading(false);
     }
   }, [deviceId]);
 
-  // 拉取历史曲线数据：默认近 24 小时，15 分钟聚合粒度
   const fetchChart = useCallback(async (metric: string) => {
     if (!deviceId) return;
     setChartLoading(true);
@@ -72,17 +93,23 @@ export default function DeviceDetail() {
     fetchDevice();
   }, [fetchDevice]);
 
-  // 指标切换时重新拉取对应历史数据
   useEffect(() => {
     fetchChart(chartMetric);
   }, [chartMetric, fetchChart]);
 
-  // WebSocket 实时更新：仅处理当前设备的事件，增量合并传感器数据
+  useEffect(() => {
+    if (device) {
+      settingsForm.setFieldsValue({
+        name: device.name,
+        plant_type: device.plant_type,
+      });
+    }
+  }, [device, settingsForm]);
+
   useWebSocket(useCallback((event, wsDeviceId, payload) => {
-    if (wsDeviceId !== deviceId) return; // 过滤其他设备的推送
+    if (wsDeviceId !== deviceId) return;
     if (event === 'telemetry_update') {
       const p = payload as Record<string, number>;
-      // 不可变更新：展开旧 sensors 再覆盖新值
       setTelemetry((prev) =>
         prev
           ? { ...prev, sensors: { ...prev.sensors, ...p }, timestamp: new Date().toISOString() }
@@ -91,7 +118,6 @@ export default function DeviceDetail() {
     }
   }, [deviceId]));
 
-  // 发送拍照指令到后端，由后端通过 MQTT 下发给物理设备
   const handlePhoto = async () => {
     if (!deviceId) return;
     setPhotoLoading(true);
@@ -102,6 +128,31 @@ export default function DeviceDetail() {
       // handled
     } finally {
       setPhotoLoading(false);
+    }
+  };
+
+  const handleSaveSettings = async (values: { name: string; plant_type: string }) => {
+    if (!deviceId) return;
+    setSaving(true);
+    try {
+      await updateDevice(deviceId, values);
+      message.success('设备信息已更新');
+      setDevice((prev) => prev ? { ...prev, name: values.name, plant_type: values.plant_type } : prev);
+    } catch {
+      // handled
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUnbind = async () => {
+    if (!deviceId) return;
+    try {
+      await unbindDevice(deviceId);
+      message.success('设备已解绑');
+      navigate('/', { replace: true });
+    } catch {
+      // handled
     }
   };
 
@@ -154,7 +205,7 @@ export default function DeviceDetail() {
           <Row gutter={[16, 16]}>
             <Col xs={24} sm={12} md={8}>
               <Card bordered={false} style={{ borderRadius: 16, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
-                <HealthGauge score={85} size={140} />
+                <HealthGauge score={latestReport?.health_score ?? 85} size={140} />
               </Card>
             </Col>
             <Col xs={24} sm={12} md={8}>
@@ -220,6 +271,159 @@ export default function DeviceDetail() {
               </Col>
             </Row>
           )}
+
+          <Divider style={{ margin: '24px 0 16px' }} />
+
+          {/* 叶片图像预览 */}
+          <Card
+            bordered={false}
+            style={{ borderRadius: 16, marginBottom: 16 }}
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span><PictureOutlined style={{ marginRight: 8 }} />叶片图像</span>
+                <Button type="link" size="small" onClick={() => navigate(`/devices/${deviceId}/images`)}>
+                  查看全部 →
+                </Button>
+              </div>
+            }
+          >
+            {imagesLoading ? (
+              <Spin />
+            ) : recentImages.length === 0 ? (
+              <Empty description="暂无叶片图像" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Row gutter={[12, 12]}>
+                {recentImages.map((img) => (
+                  <Col xs={8} sm={6} md={4} key={img.image_id}>
+                    <Card
+                      hoverable
+                      size="small"
+                      bordered={false}
+                      style={{ borderRadius: 10, overflow: 'hidden' }}
+                      cover={
+                        <div style={{ height: 120, overflow: 'hidden', background: '#f5f5f5' }}>
+                          <Image
+                            src={img.url}
+                            alt="叶片"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            preview={{ mask: null }}
+                            fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjYmZiZmJmIiBmb250LXNpemU9IjE2Ij7mr4/mnK/lm77niYc8L3RleHQ+PC9zdmc+"
+                          />
+                        </div>
+                      }
+                      onClick={() => navigate(`/devices/${deviceId}/images/${img.image_id}`)}
+                    >
+                      <Text style={{ fontSize: 11 }} type="secondary">{formatDateTime(img.timestamp)}</Text>
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
+            )}
+          </Card>
+
+          {/* 最新养护报告摘要 */}
+          <Card
+            bordered={false}
+            style={{ borderRadius: 16, marginBottom: 16 }}
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span><FileTextOutlined style={{ marginRight: 8 }} />最新养护报告</span>
+                <Button type="link" size="small" onClick={() => navigate(`/devices/${deviceId}/reports`)}>
+                  查看完整报告 →
+                </Button>
+              </div>
+            }
+          >
+            {reportLoading ? (
+              <Spin />
+            ) : latestReport ? (
+              <Row gutter={[16, 12]}>
+                <Col xs={24} sm={8} style={{ textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>健康评分</Text>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--color-primary)' }}>
+                    {latestReport.health_score != null ? latestReport.health_score : '--'}
+                  </div>
+                </Col>
+                <Col xs={24} sm={16}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>今日养护建议</Text>
+                  <Paragraph style={{ margin: '4px 0 0', fontSize: 13, color: '#555' }} ellipsis={{ rows: 2 }}>
+                    {latestReport.suggestion || '暂无建议'}
+                  </Paragraph>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 12 }}>
+                    <Text style={{ fontSize: 12 }} type="secondary">
+                      补水 {latestReport.watering.count} 次
+                    </Text>
+                    <Text style={{ fontSize: 12 }} type="secondary">
+                      拍照 {latestReport.photos_taken} 张
+                    </Text>
+                    {latestReport.disease_alert && (
+                      <Tag color="red" style={{ margin: 0 }}>病害告警</Tag>
+                    )}
+                  </div>
+                </Col>
+              </Row>
+            ) : (
+              <Empty description="暂无报告数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Card>
+
+          {/* 设备设置内联 */}
+          <Card
+            bordered={false}
+            style={{ borderRadius: 16 }}
+            title="设备设置"
+          >
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12}>
+                <Form form={settingsForm} layout="vertical" onFinish={handleSaveSettings}>
+                  <Form.Item name="name" label="设备名称" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="plant_type" label="植物品种">
+                    <Select
+                      showSearch
+                      placeholder="选择植物品种（自动配置养护参数）"
+                      options={plants.map((p) => ({ value: p.plant_type, label: p.name }))}
+                      filterOption={(input, option) =>
+                        (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item>
+                    <Button type="primary" htmlType="submit" loading={saving}>
+                      保存修改
+                    </Button>
+                  </Form.Item>
+                </Form>
+              </Col>
+              <Col xs={24} md={12}>
+                <Card size="small" bordered style={{ borderRadius: 10, marginBottom: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>设备 ID</Text>
+                  <div style={{ fontFamily: 'monospace', fontSize: 14 }}>{device.device_id}</div>
+                </Card>
+                {device.thresholds && (
+                  <Card size="small" bordered style={{ borderRadius: 10, marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>当前养护阈值</Text>
+                    <div style={{ fontSize: 13, marginTop: 4 }}>
+                      温度 {device.thresholds.temperature.min}°C ~ {device.thresholds.temperature.max}°C |&nbsp;
+                      湿度 {device.thresholds.humidity.min}% ~ {device.thresholds.humidity.max}% |&nbsp;
+                      土壤 {device.thresholds.soil_moisture.min}% ~ {device.thresholds.soil_moisture.max}%
+                    </div>
+                  </Card>
+                )}
+                <Popconfirm
+                  title="确认解绑设备？"
+                  description="解绑后设备数据将不再同步到您的账号"
+                  onConfirm={handleUnbind}
+                  okText="确认解绑"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button danger block>解绑设备</Button>
+                </Popconfirm>
+              </Col>
+            </Row>
+          </Card>
         </div>
       ),
     },
@@ -229,33 +433,6 @@ export default function DeviceDetail() {
       children: (
         <div style={{ padding: '8px 0' }}>
           <SensorChart data={chartData} metric={chartMetric} onMetricChange={setChartMetric} loading={chartLoading} />
-        </div>
-      ),
-    },
-    {
-      key: 'images',
-      label: '叶片图像',
-      children: (
-        <div style={{ padding: 24, textAlign: 'center' }}>
-          <Button type="primary" onClick={() => navigate(`/devices/${deviceId}/images`)} style={{ borderRadius: 10 }}>查看全部图像</Button>
-        </div>
-      ),
-    },
-    {
-      key: 'reports',
-      label: '养护报告',
-      children: (
-        <div style={{ padding: 24, textAlign: 'center' }}>
-          <Button type="primary" onClick={() => navigate(`/devices/${deviceId}/reports`)} style={{ borderRadius: 10 }}>查看养护报告</Button>
-        </div>
-      ),
-    },
-    {
-      key: 'settings',
-      label: '设备设置',
-      children: (
-        <div style={{ padding: 24, textAlign: 'center' }}>
-          <Button type="primary" onClick={() => navigate(`/devices/${deviceId}/settings`)} style={{ borderRadius: 10 }}>设备设置</Button>
         </div>
       ),
     },
