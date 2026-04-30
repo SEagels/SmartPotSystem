@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Row, Col, Card, Typography, Tabs, Spin, Button, message, Image, Tag, Empty, Form, Input, Select, Popconfirm, Divider } from 'antd';
-import { ArrowLeftOutlined, CameraOutlined, PictureOutlined, FileTextOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CameraOutlined, PictureOutlined, FileTextOutlined, SyncOutlined } from '@ant-design/icons';
 import { getDevice, updateDevice, unbindDevice, type DeviceDetail as DeviceDetailType } from '../api/devices';
 import { getLatestTelemetry, type LatestTelemetry } from '../api/telemetry';
-import { sendPhotoCommand } from '../api/control';
+import { sendPhotoCommand, sendSyncCommand } from '../api/control';
 import { useWebSocket } from '../hooks/useWebSocket';
 import SensorCard from '../components/SensorCard';
 import SensorChart from '../components/SensorChart';
@@ -27,6 +27,7 @@ export default function DeviceDetail() {
   const [telemetry, setTelemetry] = useState<LatestTelemetry | null>(null);
   const [loading, setLoading] = useState(true);
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [chartMetric, setChartMetric] = useState('temperature');
   const [chartData, setChartData] = useState<HistoryDataPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
@@ -39,10 +40,12 @@ export default function DeviceDetail() {
 
   const [plants, setPlants] = useState<PlantTypeItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [settingsForm] = Form.useForm();
 
   const fetchDevice = useCallback(async () => {
     if (!deviceId) return;
+    setError(null);
     try {
       const [dev, latest] = await Promise.all([
         getDevice(deviceId),
@@ -64,8 +67,8 @@ export default function DeviceDetail() {
       getPlants()
         .then(setPlants)
         .catch(() => setPlants([]));
-    } catch {
-      // handled
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '设备信息加载失败');
     } finally {
       setLoading(false);
     }
@@ -131,6 +134,29 @@ export default function DeviceDetail() {
     }
   };
 
+  const handleSync = async () => {
+    if (!deviceId) return;
+    setSyncLoading(true);
+    try {
+      const res = await sendSyncCommand(deviceId);
+      if (res && (res as any).telemetry) {
+        const sensors = (res as any).telemetry as Record<string, number>;
+        setTelemetry((prev) =>
+          prev
+            ? { ...prev, sensors: { ...prev.sensors, ...sensors }, timestamp: new Date().toISOString() }
+            : prev,
+        );
+        message.success('传感器数据已同步');
+      } else {
+        message.warning('指令已发送但设备未响应');
+      }
+    } catch {
+      // handled
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   const handleSaveSettings = async (values: { name: string; plant_type: string }) => {
     if (!deviceId) return;
     setSaving(true);
@@ -160,6 +186,26 @@ export default function DeviceDetail() {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="page-container">
+        <Button
+          type="link"
+          onClick={() => navigate('/')}
+          icon={<ArrowLeftOutlined />}
+          style={{ padding: 0, marginBottom: 12, color: 'var(--color-primary)' }}
+        >
+          返回设备列表
+        </Button>
+        <Card bordered={false} style={{ borderRadius: 20, boxShadow: 'var(--shadow-card)', textAlign: 'center', padding: '60px 0' }}>
+          <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE}>
+            <Button type="primary" onClick={() => fetchDevice()}>重新加载</Button>
+          </Empty>
+        </Card>
       </div>
     );
   }
@@ -231,21 +277,23 @@ export default function DeviceDetail() {
                 >
                   立即拍照
                 </Button>
+                <Button
+                  icon={<SyncOutlined />}
+                  block
+                  loading={syncLoading}
+                  disabled={!device.online}
+                  onClick={handleSync}
+                  style={{ height: 44, borderRadius: 10, marginTop: 8 }}
+                >
+                  同步传感器
+                </Button>
               </Card>
             </Col>
           </Row>
 
           {telemetry && (
             <Row gutter={[12, 12]} style={{ marginTop: 20 }}>
-              <Col xs={12} sm={6}>
-                <Card size="small" bordered={false} style={{ borderRadius: 12, textAlign: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>水箱余量</Text>
-                  <div className="sensor-value" style={{ fontSize: 18, color: '#06B6D4' }}>
-                    {telemetry.actuators.water_tank_level_pct.toFixed(0)}%
-                  </div>
-                </Card>
-              </Col>
-              <Col xs={12} sm={6}>
+              <Col xs={12} sm={8}>
                 <Card size="small" bordered={false} style={{ borderRadius: 12, textAlign: 'center' }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>水泵状态</Text>
                   <div style={{ fontSize: 18, marginTop: 2, color: telemetry.actuators.pump_running ? '#F97316' : '#94A3B8', fontWeight: 600 }}>
@@ -253,7 +301,7 @@ export default function DeviceDetail() {
                   </div>
                 </Card>
               </Col>
-              <Col xs={12} sm={6}>
+              <Col xs={12} sm={8}>
                 <Card size="small" bordered={false} style={{ borderRadius: 12, textAlign: 'center' }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>WiFi信号</Text>
                   <div className="sensor-value" style={{ fontSize: 18 }}>
@@ -261,7 +309,7 @@ export default function DeviceDetail() {
                   </div>
                 </Card>
               </Col>
-              <Col xs={12} sm={6}>
+              <Col xs={12} sm={8}>
                 <Card size="small" bordered={false} style={{ borderRadius: 12, textAlign: 'center' }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>运行时长</Text>
                   <div className="sensor-value" style={{ fontSize: 18 }}>

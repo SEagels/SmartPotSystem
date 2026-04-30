@@ -31,6 +31,16 @@ export async function updateDeviceConfig(deviceId: string, config: Record<string
   return res.data.data;
 }
 
+export interface SyncResult {
+  cmd: CommandResult;
+  telemetry: Record<string, number> | null;
+}
+
+export async function sendSyncCommand(deviceId: string) {
+  const res = await client.post(`/devices/${deviceId}/sync-sensors`);
+  return res.data.data as SyncResult;
+}
+
 export async function getCommandStatus(deviceId: string, cmdId: string) {
   const res = await client.get(`/devices/${deviceId}/commands/${cmdId}`);
   return res.data.data as CommandDetail;

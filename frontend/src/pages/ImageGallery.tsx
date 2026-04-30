@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Typography, Spin, Empty, Image, Tag, DatePicker, Button, message, Popconfirm } from 'antd';
-import { EyeOutlined, ReloadOutlined } from '@ant-design/icons';
-import { getImages, reDetectImages, type ImageItem } from '../api/images';
+import { Row, Col, Card, Typography, Spin, Empty, Image, Tag, DatePicker, Button, message, Popconfirm, Upload } from 'antd';
+import { EyeOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { getImages, reDetectImages, uploadImage, type ImageItem } from '../api/images';
 import { formatDateTime, formatDate } from '../utils/format';
 
 const { Title, Text } = Typography;
@@ -21,6 +21,7 @@ export default function ImageGallery() {
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState<string | null>(null);
   const [reDetecting, setReDetecting] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   // 七天清除：记录最新访问时间
   useEffect(() => {
@@ -64,6 +65,22 @@ export default function ImageGallery() {
     }
   };
 
+  const handleUpload = async (file: File) => {
+    if (!deviceId) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      await uploadImage(deviceId, formData);
+      message.success('上传成功');
+      fetchImages();
+    } catch {
+      message.error('上传失败');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><Spin size="large" /></div>;
   }
@@ -82,6 +99,18 @@ export default function ImageGallery() {
             onChange={(d) => setDate(d ? formatDate(d.toISOString()) : null)}
             placeholder="按日期筛选"
           />
+          <Upload
+            accept="image/*"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              handleUpload(file);
+              return false;
+            }}
+          >
+            <Button icon={<UploadOutlined />} loading={uploading}>
+              上传图片
+            </Button>
+          </Upload>
           <Popconfirm
             title="重新检测"
             description="将当前设备所有已完成/失败的图像重置为等待检测状态，使用新模型推理。确定要继续吗？"

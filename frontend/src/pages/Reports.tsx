@@ -117,14 +117,16 @@ export default function Reports() {
                 {(['temperature', 'humidity', 'soil_moisture'] as const).map((key) => {
                   const d = daily.environment_summary[key];
                   const hasData = d.avg != null;
+                  const labelMap: Record<string, string> = { temperature: '温度', humidity: '湿度', soil_moisture: '土壤湿度' };
+                  const unitMap: Record<string, string> = { temperature: '°C', humidity: '%', soil_moisture: '%' };
                   return (
                     <Col span={8} key={key}>
                       <Card size="small" bordered style={{ textAlign: 'center', borderRadius: 8 }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          {{ temperature: '温度', humidity: '湿度', soil_moisture: '土壤湿度' }[key]}
+                          {labelMap[key]}
                         </Text>
                         <div style={{ fontSize: 22, fontWeight: 700, color: '#4caf50' }}>
-                          {hasData ? `${d.avg!.toFixed(1)}{{ temperature: '°C', humidity: '%', soil_moisture: '%' }[key]}` : '--'}
+                          {hasData ? `${d.avg!.toFixed(1)}${unitMap[key]}` : '--'}
                         </div>
                         <Text type="secondary" style={{ fontSize: 11 }}>
                           {hasData ? `${d.min!.toFixed(1)} ~ ${d.max!.toFixed(1)}` : '暂无数据'}

@@ -10,21 +10,24 @@ from app.models.telemetry import Telemetry
 
 
 async def ingest_telemetry(db: AsyncSession, device_id: str, data: dict) -> Telemetry:
+    sensors = data.get("sensors", {})
+    actuators = data.get("actuators", {})
+    system = data.get("system", {})
+
     t = Telemetry(
         time=datetime.now(UTC),
         device_id=device_id,
         sequence=data.get("sequence"),
-        temperature=data.get("temperature"),
-        humidity=data.get("humidity"),
-        soil_moisture=data.get("soil_moisture"),
-        light_intensity=data.get("light_intensity"),
-        pump_running=data.get("pump_running", False),
-        led_on=data.get("led_on", False),
-        water_tank_level_pct=data.get("water_tank_level_pct"),
-        wifi_rssi=data.get("wifi_rssi"),
-        free_heap_kb=data.get("free_heap_kb"),
-        uptime_s=data.get("uptime_s"),
-        firmware_version=data.get("firmware_version"),
+        temperature=sensors.get("temperature"),
+        humidity=sensors.get("humidity"),
+        soil_moisture=sensors.get("soil_moisture"),
+        light_intensity=sensors.get("light_intensity"),
+        pump_running=actuators.get("pump_running", False),
+        led_on=actuators.get("led_on", False),
+        wifi_rssi=system.get("wifi_rssi"),
+        free_heap_kb=system.get("free_heap_kb"),
+        uptime_s=system.get("uptime_s"),
+        firmware_version=system.get("firmware_version"),
     )
     db.add(t)
     await db.flush()
@@ -53,7 +56,6 @@ async def get_latest_telemetry(db: AsyncSession, device_id: str) -> dict | None:
         "actuators": {
             "pump_running": t.pump_running,
             "led_on": t.led_on,
-            "water_tank_level_pct": t.water_tank_level_pct,
         },
         "system": {
             "wifi_rssi": t.wifi_rssi,

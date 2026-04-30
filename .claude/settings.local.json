@@ -20,7 +20,26 @@
       "Bash(python -c ' *)",
       "Bash(python *)",
       "Bash(curl -s http://localhost:8000/health)",
-      "Bash(curl -s -X POST http://localhost:8000/v1/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"demo_user\",\"password\":\"123456\"}')"
+      "Bash(curl -s -X POST http://localhost:8000/v1/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"demo_user\",\"password\":\"123456\"}')",
+      "Bash(node *)",
+      "Bash(winget install *)",
+      "Bash(cmd.exe *)",
+      "Bash(powershell.exe *)",
+      "Bash(curl -L -o \"/c/Users/Scott/Downloads/mosquitto-installer.exe\" \"https://mosquitto.org/files/binary/win64/mosquitto-2.0.20-install-windows-x64.exe\")",
+      "Bash(pio run *)",
+      "Bash(rm -rf \"C:/Users/Scott/smartpot-fw-real\")",
+      "Bash(cp -r \"D:/毕业设计/SmartPotSystem/firmware\" \"C:/Users/Scott/smartpot-fw-real\")",
+      "Bash(docker-compose up *)",
+      "Bash(docker compose *)",
+      "Bash(docker-compose --version)",
+      "Bash(mosquitto --help)",
+      "Bash(sc query *)",
+      "Bash(winget --version)",
+      "Bash(choco --version)",
+      "Bash(scoop --version)",
+      "Bash(winget search *)",
+      "Bash(pip show *)",
+      "Bash(taskkill //F //IM python3.exe)"
     ]
   }
 }

@@ -167,7 +167,7 @@ def _infer(image_path: str) -> list[dict]:
     results = _MODEL.predict(
         source=image_path,
         imgsz=640,
-        conf=0.5,
+        conf=0.25,
         iou=0.45,
         augment=True,
         half=False,
@@ -222,24 +222,82 @@ async def _rule_based_detection(image_path: str) -> list[dict]:
     mean_b = float(np.mean(arr[:, :, 2]))
     std = float(np.std(arr))
 
+    h, w = arr.shape[:2]
+    cy, cx = h // 2, w // 2
+    r_size = min(h, w) // 4
+    if r_size < 1:
+        r_size = 1
+    center = arr[cy - r_size:cy + r_size, cx - r_size:cx + r_size, :]
+    center_mean_r = float(np.mean(center[:, :, 0]))
+    center_mean_g = float(np.mean(center[:, :, 1]))
+    center_mean_b = float(np.mean(center[:, :, 2]))
+
+    brightness = np.mean(arr, axis=2)
+
+    # pixels where R+G dominates over B (yellow/brown/cholorosis tones)
+    yellow_mask = (arr[:, :, 0] + arr[:, :, 1]) > 2.2 * arr[:, :, 2]
+    yellow_ratio = float(np.mean(yellow_mask))
+
+    # dark patches (potential necrosis)
+    dark_ratio = float(np.mean(brightness < 0.25))
+
+    # brown spots: red dominant in mid-brightness
+    brown_mask = (arr[:, :, 0] > arr[:, :, 1]) & (arr[:, :, 0] > arr[:, :, 2]) & (brightness > 0.2) & (brightness < 0.6)
+    brown_ratio = float(np.mean(brown_mask))
+
+    # white/bright patches (potential powdery mildew)
+    white_mask = (arr[:, :, 0] > 0.72) & (arr[:, :, 1] > 0.72) & (arr[:, :, 2] > 0.72)
+    white_ratio = float(np.mean(white_mask))
+
     if std < 0.05:
-        return [{"class": "healthy", "name_zh": "健康", "confidence": 0.9, "bbox": None, "severity": None,
+        return [{"class": "healthy", "name_zh": "健康", "confidence": 0.85, "bbox": None, "severity": None,
                  "recommendation": "图像过于均匀，可能是光照不足或拍摄异常，建议使用更好的光照条件重新拍摄"}]
 
-    if mean_g > mean_r * 1.15 and mean_g > mean_b * 1.05:
-        return [{"class": "healthy", "name_zh": "健康", "confidence": 0.75, "bbox": None, "severity": None,
+    detections = []
+
+    if brown_ratio > 0.04 or dark_ratio > 0.12:
+        conf = round(min(0.62, 0.28 + brown_ratio * 3), 4)
+        sev = "severe" if brown_ratio > 0.14 else "moderate"
+        detections.append({
+            "class": "Leaf Spot", "name_zh": "叶斑病", "confidence": conf,
+            "bbox": None, "severity": sev,
+            "recommendation": "叶片检测到褐色/深色斑点，可能为叶斑病或坏死斑，建议人工确认并喷洒多菌灵800倍液",
+        })
+
+    if yellow_ratio > 0.18:
+        conf = round(min(0.58, 0.22 + yellow_ratio * 0.6), 4)
+        sev = "moderate" if yellow_ratio > 0.35 else "mild"
+        detections.append({
+            "class": "disease", "name_zh": "叶片黄化", "confidence": conf,
+            "bbox": None, "severity": sev,
+            "recommendation": "叶片出现黄化现象，可能缺氮或缺铁，建议检查土壤养分并适当追肥",
+        })
+
+    if white_ratio > 0.025:
+        conf = round(min(0.52, 0.28 + white_ratio * 4), 4)
+        detections.append({
+            "class": "Powdery Mildew Leaf", "name_zh": "叶片白粉病", "confidence": conf,
+            "bbox": None, "severity": "mild",
+            "recommendation": "疑似白粉病，建议保持通风，检查叶片正面是否有白色粉末，必要时喷洒三唑酮1500倍液",
+        })
+
+    center_green_ratio = center_mean_g / max(center_mean_r, center_mean_b, 0.01)
+    if center_green_ratio < 0.92:
+        detections.append({
+            "class": "healthy", "name_zh": "叶片色泽异常", "confidence": 0.38,
+            "bbox": None, "severity": "mild",
+            "recommendation": "叶片中心区域绿色度偏低，可能存在光照不足或养分不均，建议调整光照条件",
+        })
+
+    if detections:
+        return detections
+
+    if mean_g > mean_r * 1.1 and mean_g > mean_b * 1.02:
+        return [{"class": "healthy", "name_zh": "健康", "confidence": 0.8, "bbox": None, "severity": None,
                  "recommendation": "植株叶片整体呈健康绿色，继续保持当前养护"}]
 
-    if mean_b > mean_r and mean_b > mean_g:
-        return [{"class": "leaf_spot", "name_zh": "叶斑病", "confidence": 0.45, "bbox": None, "severity": "moderate",
-                 "recommendation": "检测到叶片色斑，建议人工查看确认，必要时喷洒多菌灵800倍液"}]
-
-    if mean_r > mean_g * 1.1 or std < 0.08:
-        return [{"class": "powdery_mildew", "name_zh": "白粉病", "confidence": 0.40, "bbox": None, "severity": "mild",
-                 "recommendation": "疑似白粉病早期，建议保持通风，检查叶片正面是否有白色粉末"}]
-
-    return [{"class": "healthy", "name_zh": "健康", "confidence": 0.6, "bbox": None, "severity": None,
-             "recommendation": "植株叶片状态尚可，继续保持当前养护"}]
+    return [{"class": "healthy", "name_zh": "基本健康", "confidence": 0.55, "bbox": None, "severity": None,
+             "recommendation": "植株叶片状态尚可，建议持续观察，注意水肥管理"}]
 
 
 def get_disease_name_zh(class_name: str) -> str:

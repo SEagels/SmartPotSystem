@@ -151,7 +151,7 @@ async def get_image_detail(db: AsyncSession, device_id: str, image_id: str) -> d
 
     return {
         "image_id": image.image_id,
-        "url": image.url,
+        "url": image.url or image.storage_path,
         "annotated_url": image.annotated_url,
         "timestamp": image.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if image.timestamp else None,
         "photo_index": image.photo_index,

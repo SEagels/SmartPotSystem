@@ -31,8 +31,13 @@ async def lifespan(app: FastAPI):
     """FastAPI生命周期管理：控制所有长生命周期资源（DB/MQTT/Worker）的初始化与优雅关闭"""
     global _report_task
 
-    # 启动阶段：先建表，再拉起后台Worker
+    # 启动阶段：先建表 → 启动本地MQTT Broker → 拉起后台Worker
     await init_db()
+
+    # 开发模式下启动本地内嵌MQTT Broker（无需外部EMQX/Mosquitto）
+    if settings.IS_DEV:
+        from app.core.local_broker import start_local_broker
+        await start_local_broker(host="0.0.0.0", port=settings.MQTT_BROKER_PORT)
 
     # 遥测消费者和图像处理Worker各自独立运行，任一失败不影响启动
     _telemetry_task = asyncio.create_task(_safe_start_telemetry())
@@ -62,6 +67,11 @@ async def lifespan(app: FastAPI):
 
     await ws_manager.close_all()
     await close_redis()
+
+    # 关闭本地MQTT Broker
+    if settings.IS_DEV:
+        from app.core.local_broker import stop_local_broker
+        await stop_local_broker()
 
 
 async def _safe_start_telemetry():

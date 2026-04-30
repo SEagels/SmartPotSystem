@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -14,6 +15,8 @@ import paho.mqtt.client as mqtt
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class MQTTManager:
     """MQTT连接管理器：封装paho-mqtt的订阅/发布/回调，桥接同步回调到异步处理器"""
@@ -21,43 +24,73 @@ class MQTTManager:
         # 每次启动生成唯一Client ID，避免Broker端会话残留冲突
         self._client = mqtt.Client(
             client_id=f"smartpot-server-{uuid.uuid4().hex[:8]}",
-            protocol=mqtt.MQTTv5,
+            protocol=mqtt.MQTTv311,
         )
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         # handler注册表：topic → async回调函数
         self._handlers: dict[str, Callable] = {}
-        # 保存事件循环引用，用于跨线程投递协程
-        self._loop = asyncio.get_event_loop()
+        self._loop = None  # 首次connect时延迟获取事件循环
 
-    def _on_connect(self, client, userdata, flags, reason_code, properties):
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
         """连接成功后自动重新订阅所有已注册的Topic（断线重连时也生效）"""
-        if reason_code == 0:
+        if rc == 0:
+            logger.info(f"MQTT connected to {settings.MQTT_BROKER_HOST}:{settings.MQTT_BROKER_PORT}")
             for topic in self._handlers:
                 client.subscribe(topic, qos=1)
+                logger.info(f"MQTT subscribed: {topic}")
+        else:
+            logger.warning(f"MQTT connect failed: rc={rc}")
+
+    def _match_topic(self, pattern: str, topic: str) -> bool:
+        """MQTT topic 通配符匹配：+ 匹配单层，# 匹配多层"""
+        pattern_parts = pattern.split("/")
+        topic_parts = topic.split("/")
+        for i, pp in enumerate(pattern_parts):
+            if pp == "#":
+                return True  # # 匹配剩余所有层级
+            if pp == "+":
+                if i >= len(topic_parts):
+                    return False
+                continue  # + 匹配任意单层
+            if i >= len(topic_parts) or pp != topic_parts[i]:
+                return False
+        return len(topic_parts) == len(pattern_parts)
 
     def _on_message(self, client, userdata, msg):
-        """收到消息时：JSON解析 → 查找handler → 线程安全投递到asyncio事件循环"""
-        handler = self._handlers.get(msg.topic)
+        """收到消息时：通配符匹配handler → JSON解析 → 投递到asyncio事件循环"""
+        handler = None
+        for pattern, h in self._handlers.items():
+            if h and self._match_topic(pattern, msg.topic):
+                handler = h
+                break
         if handler:
+            if self._loop is None:
+                self._loop = asyncio.get_event_loop()
             payload = json.loads(msg.payload.decode())
-            # 关键：paho回调在独立线程，必须用run_coroutine_threadsafe投递async函数
+            logger.debug(f"MQTT << {msg.topic}: {json.dumps(payload, ensure_ascii=False)[:200]}")
             asyncio.run_coroutine_threadsafe(handler(msg.topic, payload), self._loop)
+        else:
+            logger.warning(f"MQTT << {msg.topic}: NO HANDLER (patterns={list(self._handlers.keys())})")
 
     def subscribe(self, topic: str, qos: int = 1):
-        """订阅Topic：先注册占位（handler稍后通过on_message绑定），若已连接则立即订阅"""
-        self._handlers[topic] = None  # 占位，确保断线重连时自动续订
+        """订阅Topic：注册到handler表（不覆盖已绑定的处理器），若已连接则立即订阅"""
+        self._handlers.setdefault(topic, None)
         if self._client.is_connected():
             self._client.subscribe(topic, qos=qos)
 
     def on_message(self, topic: str, handler: Callable):
         """注册topic的消息处理器（Coroutine函数）"""
         self._handlers[topic] = handler
+        logger.info(f"MQTT handler registered: {topic}")
 
     def connect(self):
         """建立MQTT连接并启动消息循环（loop_start在后台线程中运行）"""
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
+        logger.info(f"MQTT connecting to {settings.MQTT_BROKER_HOST}:{settings.MQTT_BROKER_PORT}...")
         self._client.connect(settings.MQTT_BROKER_HOST, settings.MQTT_BROKER_PORT)
-        self._client.loop_start()  # 非阻塞网络循环
+        self._client.loop_start()
 
     def disconnect(self):
         """优雅断开MQTT连接"""

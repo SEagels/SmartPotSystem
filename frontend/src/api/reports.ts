@@ -10,7 +10,7 @@ export interface DailyReport {
   watering: { count: number; total_ml: number; trigger_reasons: string[] };
   photos_taken: number;
   disease_alert: boolean;
-  health_score: number;
+  health_score: number | null;
   suggestion: string;
   suggestion_detail: {
     watering_recommendation: string;

@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.dependencies import get_current_device, get_current_user
+from app.dependencies import get_current_device, get_device_for_upload
 from app.models.device import Device
-from app.models.user import User
 from app.services import image_service
-from app.services.storage_service import get_storage
+from app.services.storage_service import generate_storage_path, get_storage
 
 router = APIRouter(prefix="/devices/{device_id}/images")
 
 
 @router.post("")
 async def upload_image(
-    device: Device = Depends(get_current_device),
-    user: User = Depends(get_current_user),
+    device: Device = Depends(get_device_for_upload),
     image: UploadFile = File(...),
     metadata: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
@@ -27,11 +26,16 @@ async def upload_image(
     meta_dict = json.loads(metadata) if metadata else {}
     storage = get_storage()
     try:
-        storage_path = await storage.upload(image.filename, content, device.device_id)
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+        ts = datetime.now(UTC).strftime("%H%M%S%f")
+        unique_name = f"{ts}.jpg"
+        path = generate_storage_path(device.device_id, date_str, unique_name)
+        storage_path = await storage.upload(content, path)
     except Exception:
         storage_path = None
 
-    img = await image_service.create_image(db, device.device_id, str(user.id), meta_dict, storage_path)
+    user_id = str(device.user_id) if device.user_id else ""
+    img = await image_service.create_image(db, device.device_id, user_id, meta_dict, storage_path)
     return {
         "code": 0, "message": "success",
         "data": {
@@ -52,7 +56,7 @@ async def list_images(
     data = [
         {
             "image_id": img.image_id,
-            "url": img.url,
+            "url": img.url or img.storage_path,
             "annotated_url": img.annotated_url,
             "timestamp": img.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if img.timestamp else None,
             "photo_index": img.photo_index,

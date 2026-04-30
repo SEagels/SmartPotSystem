@@ -37,6 +37,36 @@ npm run build         # production build
 npx tsc --noEmit      # type check only
 ```
 
+### Firmware (`firmware/`)
+
+```bash
+# Install PlatformIO
+pip install platformio
+
+# Compile (fetches dependencies automatically)
+cd firmware && pio run
+
+# Compile + upload + serial monitor
+pio run -t upload -t monitor
+
+# Library dependencies (auto-managed by platformio.ini):
+#   adafruit/DHT sensor library, claws/BH1750, knolleary/PubSubClient, bblanchon/ArduinoJson
+```
+
+Mock mode (`MOCK_MODE 1` in `include/config.h`) requires no hardware — sensors return simulated data and the camera returns a minimal valid JPEG. Set to `0` for real hardware.
+
+Strict pin mapping is defined in `include/board_pins.h` (OV2640 camera, pump GPIO47, DHT11 GPIO21, BH1750 SDA=41/SCL=42, soil ADC GPIO1). Do not modify pin assignments.
+
+### Model Training
+
+```bash
+# train.py at repo root — YOLOv11 training script
+python train.py --data data.yaml --weights best.pt --epochs 100
+
+# Dataset in data/ (YOLO format: images/ + labels/)
+# Class mapping defined in data.yaml (12 plant disease classes in Chinese)
+```
+
 ### Demo accounts (after seeding)
 
 - `demo_user` / `123456` (4 devices)
@@ -157,6 +187,36 @@ npm install            # 安装依赖
 npm run dev            # 开发服务器，端口 :5173，/v1 代理到 :8000
 npm run build          # 生产构建
 npx tsc --noEmit       # 仅类型检查
+```
+
+### 固件 (`firmware/`)
+
+```bash
+# 安装 PlatformIO
+pip install platformio
+
+# 编译（自动拉取依赖）
+cd firmware && pio run
+
+# 编译 + 烧录 + 串口监视
+pio run -t upload -t monitor
+
+# 库依赖（platformio.ini 自动管理）：
+#   adafruit/DHT sensor library, claws/BH1750, knolleary/PubSubClient, bblanchon/ArduinoJson
+```
+
+Mock 模式 (`MOCK_MODE 1` in `include/config.h`) 无需硬件即可编译运行 —— 传感器返回模拟值，摄像头返回最小合法 JPEG。设置为 `0` 切换到真实硬件。
+
+引脚映射严格定义在 `include/board_pins.h`（OV2640 摄像头、水泵 GPIO47、DHT11 GPIO21、BH1750 SDA=41/SCL=42、土壤 ADC GPIO1），不得修改。
+
+### 模型训练
+
+```bash
+# train.py 位于仓库根目录 — YOLOv11 训练脚本
+python train.py --data data.yaml --weights best.pt --epochs 100
+
+# 数据集在 data/ (YOLO 格式: images/ + labels/)
+# 类别映射定义在 data.yaml (12 种植物病害中文名)
 ```
 
 ### 演示账号（灌入数据后可用）

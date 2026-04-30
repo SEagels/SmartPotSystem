@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     YOLO_MODEL_PATH: str = "./models/yolov11-plant.onnx"
     YOLO_PT_MODEL_PATH: str = "./models/best.pt"
+    DEVICE_API_TOKEN: str = ""
     # ── 大模型养护建议配置 ──
     # LLM_API_KEY: 在此填写你的大模型 API Key（兼容 OpenAI 格式的 API 均可使用）
     # 若不填写，系统将使用内置规则自动生成养护建议（效果略逊于大模型）

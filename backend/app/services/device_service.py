@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,30 @@ from app.models.alert import Alert
 from app.models.device import Device
 from app.models.plant import PlantType
 from app.models.telemetry import Telemetry
+
+# 设备在线判定阈值：若最近一次遥测距今超过此时间，视为离线
+ONLINE_FRESHNESS_MINUTES = 10
+
+
+async def _is_device_really_online(db: AsyncSession, device_id: str) -> bool:
+    """判断设备在线：优先看遥测新鲜度，遥测过期直接判离线，无遥测时才回退到MQTT状态标记"""
+    result = await db.execute(
+        select(Telemetry.time)
+        .where(Telemetry.device_id == device_id)
+        .order_by(Telemetry.time.desc())
+        .limit(1)
+    )
+    row = result.first()
+    if row:
+        cutoff = datetime.now(UTC) - timedelta(minutes=ONLINE_FRESHNESS_MINUTES)
+        if row.time.replace(tzinfo=UTC) >= cutoff:
+            return True
+        # 有遥测但过期 → 设备已离线，MqTT 状态消息可能因 retain/QoS0 未及时更新
+        return False
+    # 从未发过遥测 → 回退到 MQTT 状态消息标记
+    d = await db.execute(select(Device.online).where(Device.device_id == device_id))
+    dr = d.first()
+    return bool(dr[0]) if dr else False
 
 
 async def list_user_devices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
@@ -32,6 +56,8 @@ async def list_user_devices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
             if p:
                 plant_name = p.name
         latest_telemetry = await _get_latest_telemetry_snippet(db, d.device_id)
+        # 在线状态基于遥测新鲜度，而非数据库默认值
+        online = await _is_device_really_online(db, d.device_id)
         # 检查是否有未读告警（用于前端显示红点提醒）
         has_alert = await db.execute(
             select(func.count(Alert.alert_id)).where(
@@ -43,7 +69,7 @@ async def list_user_devices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
             "name": d.name,
             "plant_type": d.plant_type,
             "plant_type_name": plant_name,
-            "online": d.online,
+            "online": online,
             "latest_telemetry": latest_telemetry,
             "has_active_alert": (has_alert.scalar() or 0) > 0,
             "bound_at": d.bound_at.strftime("%Y-%m-%dT%H:%M:%SZ") if d.bound_at else None,
@@ -99,7 +125,7 @@ async def get_device_detail(db: AsyncSession, device_id: str, user_id: uuid.UUID
         "name": device.name,
         "plant_type": device.plant_type,
         "plant_type_name": plant_name,
-        "online": device.online,
+        "online": await _is_device_really_online(db, device_id),
         "firmware_version": device.firmware_version,
         "latest_telemetry": await _get_latest_telemetry_snippet(db, device_id),
         "thresholds": thresholds,

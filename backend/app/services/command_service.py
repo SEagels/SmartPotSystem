@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_sessionmaker
+from app.core.database import db_write_lock, get_sessionmaker
 from app.core.mqtt import mqtt_manager
 from app.models.command import Command
 
@@ -29,7 +29,7 @@ async def send_water_command(db: AsyncSession, device_id: str, user_id: uuid.UUI
     mqtt_manager.publish(
         f"smartpot/{device_id}/command/water",
         {"cmd_id": cmd_id, "duration_ms": duration_ms, "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")},
-        qos=1,
+        qos=0,
     )
 
     asyncio.create_task(_ack_timeout(cmd_id, timeout_s=30))
@@ -56,7 +56,7 @@ async def send_photo_command(db: AsyncSession, device_id: str, user_id: uuid.UUI
     mqtt_manager.publish(
         f"smartpot/{device_id}/command/photo",
         {"cmd_id": cmd_id, "burst_count": burst_count, "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")},
-        qos=1,
+        qos=0,
     )
 
     asyncio.create_task(_ack_timeout(cmd_id, timeout_s=30))
@@ -88,7 +88,34 @@ async def send_config_command(
     mqtt_manager.publish(
         f"smartpot/{device_id}/command/config",
         {"cmd_id": cmd_id, **config, "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")},
-        qos=1,
+        qos=0,
+    )
+
+    asyncio.create_task(_ack_timeout(cmd_id, timeout_s=30))
+    return {
+        "cmd_id": cmd_id,
+        "status": "sent",
+        "timestamp": cmd.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+async def send_sync_command(db: AsyncSession, device_id: str, user_id: uuid.UUID) -> dict:
+    cmd_id = f"CMD-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-SYNC"
+    cmd = Command(
+        cmd_id=cmd_id,
+        device_id=device_id,
+        user_id=user_id,
+        type="sync",
+        status="sent",
+        request=json.dumps({"action": "sync_sensors"}),
+    )
+    db.add(cmd)
+    await db.flush()
+
+    mqtt_manager.publish(
+        f"smartpot/{device_id}/command/sync",
+        {"cmd_id": cmd_id, "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")},
+        qos=0,
     )
 
     asyncio.create_task(_ack_timeout(cmd_id, timeout_s=30))
@@ -120,10 +147,11 @@ async def get_command_status(db: AsyncSession, device_id: str, cmd_id: str) -> d
 async def _ack_timeout(cmd_id: str, timeout_s: int = 30):
     await asyncio.sleep(timeout_s)
     sessionmaker = get_sessionmaker()
-    async with sessionmaker() as session:
-        result = await session.execute(select(Command).where(Command.cmd_id == cmd_id))
-        cmd = result.scalar_one_or_none()
-        if cmd and cmd.status == "sent":
-            cmd.status = "timeout"
-            cmd.completed_at = datetime.now(UTC)
-            await session.commit()
+    async with db_write_lock:
+        async with sessionmaker() as session:
+            result = await session.execute(select(Command).where(Command.cmd_id == cmd_id))
+            cmd = result.scalar_one_or_none()
+            if cmd and cmd.status == "sent":
+                cmd.status = "timeout"
+                cmd.completed_at = datetime.now(UTC)
+                await session.commit()

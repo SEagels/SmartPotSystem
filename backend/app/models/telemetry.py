@@ -20,7 +20,6 @@ class Telemetry(Base):
     light_intensity: Mapped[float | None] = mapped_column(Float, nullable=True)
     pump_running: Mapped[bool] = mapped_column(Boolean, default=False)
     led_on: Mapped[bool] = mapped_column(Boolean, default=False)
-    water_tank_level_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     wifi_rssi: Mapped[int | None] = mapped_column(Integer, nullable=True)
     free_heap_kb: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uptime_s: Mapped[int | None] = mapped_column(Integer, nullable=True)

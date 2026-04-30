@@ -11,7 +11,7 @@ export interface LatestTelemetry {
   };
   actuators: {
     pump_running: boolean;
-    water_tank_level_pct: number;
+    led_on: boolean;
   };
   system: {
     wifi_rssi: number;

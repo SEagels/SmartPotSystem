@@ -98,7 +98,7 @@ async def _seed_devices(session):
                bound_at=ts_dt(-DAY * 28)),
         Device(device_id="SP000002", user_id=USER_1_ID, name="阳台绿萝",
                plant_type="epipremnum_aureum", bind_code="B2C3D4E5",
-               online=True, firmware_version="v1.2.3",
+               online=False, firmware_version="v1.2.3",
                photo_schedule='["08:00","12:00","16:00"]',
                soil_moisture_threshold=30.0, watering_max_duration_ms=20000,
                bound_at=ts_dt(-DAY * 21)),
@@ -139,7 +139,7 @@ async def _seed_telemetry(session):
 
     for device_id, (tm, td, hm, hd, sm, sd, lb) in patterns.items():
         seq = 0
-        end_offset = -DAY if device_id == "SP000003" else timedelta(0)
+        end_offset = -DAY if device_id == "SP000003" else (-timedelta(hours=2) if device_id == "SP000002" else timedelta(0))
         start_offset = -DAY if device_id == "SP000004" else -DAY * 3
 
         t = NOW + start_offset
@@ -167,7 +167,6 @@ async def _seed_telemetry(session):
                 soil_moisture=round(min(65.0, max(15.0, soil)), 1),
                 light_intensity=round(light, 1),
                 pump_running=False, led_on=(hour < 6 or hour >= 18),
-                water_tank_level_pct=round(tank, 1),
                 wifi_rssi=random.randint(-60, -30),
                 free_heap_kb=random.randint(200, 300),
                 uptime_s=int((t - (NOW + start_offset)).total_seconds()),

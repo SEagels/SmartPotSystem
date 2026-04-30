@@ -15,7 +15,6 @@ class TelemetrySensors(BaseModel):
 class TelemetryActuators(BaseModel):
     pump_running: bool = False
     led_on: bool = False
-    water_tank_level_pct: float | None = None
 
 
 class TelemetrySystem(BaseModel):
