@@ -42,6 +42,7 @@ export default function DeviceDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsForm] = Form.useForm();
+  const [pumpRunning, setPumpRunning] = useState(false);
 
   const fetchDevice = useCallback(async () => {
     if (!deviceId) return;
@@ -255,7 +256,13 @@ export default function DeviceDetail() {
               </Card>
             </Col>
             <Col xs={24} sm={12} md={8}>
-              <WateringControl deviceId={deviceId!} disabled={!device.online} />
+              <WateringControl
+                deviceId={deviceId!}
+                disabled={!device.online}
+                pumpRunning={pumpRunning}
+                onPumpStart={() => setPumpRunning(true)}
+                onPumpStop={() => setPumpRunning(false)}
+              />
             </Col>
             <Col xs={24} sm={12} md={8}>
               <Card
@@ -296,8 +303,8 @@ export default function DeviceDetail() {
               <Col xs={12} sm={8}>
                 <Card size="small" bordered={false} style={{ borderRadius: 12, textAlign: 'center' }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>水泵状态</Text>
-                  <div style={{ fontSize: 18, marginTop: 2, color: telemetry.actuators.pump_running ? '#F97316' : '#94A3B8', fontWeight: 600 }}>
-                    {telemetry.actuators.pump_running ? '运行中' : '停止'}
+                  <div style={{ fontSize: 18, marginTop: 2, color: pumpRunning ? '#F97316' : '#94A3B8', fontWeight: 600 }}>
+                    {pumpRunning ? '运行中' : '停止'}
                   </div>
                 </Card>
               </Col>

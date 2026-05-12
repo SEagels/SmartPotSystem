@@ -13,8 +13,9 @@ SmartPot is an IoT smart flower pot system: ESP32-S3 hardware with sensors (DHT2
 ```bash
 # Install (from backend/ directory)
 pip install -e .
+pip install amqtt          # embedded MQTT broker for dev mode (not in pyproject.toml)
 
-# Dev server (SQLite, auto-creates tables + seeds demo data)
+# Dev server (SQLite, auto-creates tables + seeds demo data + embedded MQTT broker on :1883)
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Reset and re-seed demo data (idempotent, skips if data exists)
@@ -83,7 +84,7 @@ ESP32 Hardware ──MQTT──> EMQX Broker ──> FastAPI Backend <──REST
 
 - **Device ↔ Cloud**: MQTT topics under `smartpot/{device_id}/telemetry/...`, QoS 1, 5-min intervals. Images uploaded via HTTPS multipart (never through MQTT). Commands sent cloud→device with 30s ACK timeout.
 - **Cloud ↔ App**: REST API at `/v1/*` with JWT Bearer auth. WebSocket at `/v1/ws?token=<jwt>` for real-time push (telemetry updates, alerts, command status, detection completion).
-- **Dev mode**: SQLite via aiosqlite, local filesystem storage, MQTT connection skipped (telemetry consumer fails silently), demo data auto-seeded on startup.
+- **Dev mode**: SQLite via aiosqlite, local filesystem storage, embedded `amqtt` MQTT broker on :1883 (no external broker needed), demo data auto-seeded on startup.
 - **Prod mode**: PostgreSQL + TimescaleDB (time-series), Redis (pub/sub), MinIO (S3-compatible image storage), EMQX broker.
 
 ### Backend layer structure (`backend/app/`)
@@ -102,6 +103,12 @@ Key patterns:
 - **Service layer**: All business logic lives in `services/`. API routes are thin adapters.
 - **API response envelope**: `{code: 0, message: "success", data: {...}}`. Non-zero codes for errors (1001=bad params, 1002=unauth, 2001=not found, etc.).
 - **Storage abstraction**: `StorageBackend` base class with `LocalStorageBackend` and `MinIOStorageBackend` implementations, selected via `settings.STORAGE_BACKEND`.
+- **MQTT topic routing**: Four wildcard topic handlers in `services/mqtt_service.py`:
+  - `smartpot/+/telemetry` → `_handle_telemetry` — sensor data ingestion + WebSocket push
+  - `smartpot/+/status` → `_handle_device_status` — device online state update + offline alerts
+  - `smartpot/+/event/watering` → `_handle_watering_event` — watering event recording
+  - `smartpot/+/response/+` → `_handle_command_response` — command ACK processing (30s timeout)
+- **Dev MQTT broker**: `core/local_broker.py` runs an embedded `amqtt` MQTT 3.1.1 broker in-process. No external broker (EMQX/Mosquitto) needed in dev. Anonymous auth, max 50 connections.
 
 ### Frontend layer structure (`frontend/src/`)
 
@@ -117,6 +124,7 @@ Key patterns:
 - **API client**: Axios instance at `/v1` with request interceptor (attach JWT) and response interceptor (check `code` field, handle 401/logout, parse 422 validation errors).
 - **Auth flow**: `login()` stores token+user in localStorage and state. `ProtectedRoute` checks token existence.
 - **WebSocket**: Single reusable hook with 5s auto-reconnect. Pages filter events by `deviceId`.
+- **WebSocket event types**: `telemetry_update`, `device_status`, `watering_complete`, `command_update` — pushed per-user via `ws_manager.send_to_user()`.
 - **Design system**: CSS custom properties in `styles/global.css` — "Organic Biophilic" theme with Plant Care palette (primary `#15803D`, bg `#F0FDF4`, accent `#D97706`), Lora+Raleway fonts, 4px spacing scale, green-tinted shadows.
 
 ### Disease detection pipeline
@@ -145,8 +153,10 @@ Key patterns:
 
 - `datetime.UTC` is not available on the `datetime.datetime` class in Python 3.14 — use `from datetime import UTC` and reference `UTC` directly, not `datetime.UTC`.
 - SQLAlchemy `AsyncConnection` (from `engine.begin()`) does not support ORM `add_all()` — use `AsyncSession` from `get_sessionmaker()` for ORM operations.
+- `core/database.py` exports `db_write_lock` (an `asyncio.Lock`) — all SQLite write operations MUST be wrapped with `async with db_write_lock:` to avoid concurrent write conflicts. Read-only operations can use `get_db_readonly()` which does not hold the lock.
 - Frontend uses Ant Design 5 with extensive CSS variable overrides — avoid hardcoded colors in components, use `var(--color-*)` tokens.
 - The `/ws` Vite proxy rule is defined but unused; `useWebSocket` connects directly to `hostname:8000/v1/ws`.
+- `amqtt` is required for the embedded dev MQTT broker but is NOT listed in `pyproject.toml` — must be installed separately with `pip install amqtt`.
 
 ---
 
@@ -165,8 +175,9 @@ SmartPot 是一套物联网智能花盆系统：ESP32-S3 硬件搭载传感器�
 ```bash
 # 安装依赖（在 backend/ 目录下执行）
 pip install -e .
+pip install amqtt          # 开发模式内嵌MQTT Broker（未包含在 pyproject.toml 中）
 
-# 开发服务器（SQLite模式，自动建表 + 灌入演示数据）
+# 开发服务器（SQLite模式，自动建表 + 灌入演示数据 + 内嵌MQTT Broker监听 :1883）
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 重置并重新灌入演示数据（幂等操作，已有数据则跳过）
@@ -235,7 +246,7 @@ ESP32 硬件 ──MQTT──> EMQX 消息中间件 ──> FastAPI 后端 <─�
 
 - **硬件 ↔ 云端**：MQTT 主题 `smartpot/{device_id}/telemetry/...`，QoS 1，每5分钟上报一次。图片通过 HTTPS multipart 上传（绝不通过 MQTT 传输二进制图片数据）。云端下发指令，设备30秒内回复 ACK。
 - **云端 ↔ 应用**：REST API 路径 `/v1/*`，JWT Bearer 认证。WebSocket 路径 `/v1/ws?token=<jwt>` 用于实时推送（遥测更新、告警、指令状态、检测完成通知）。
-- **开发模式**：SQLite + aiosqlite 异步驱动，本地文件系统存储，MQTT 连接失败静默跳过，启动时自动灌入演示数据。
+- **开发模式**：SQLite + aiosqlite 异步驱动，本地文件系统存储，内嵌 `amqtt` MQTT Broker 监听 :1883（无需外部消息中间件），启动时自动灌入演示数据。
 - **生产模式**：PostgreSQL + TimescaleDB（时序数据），Redis（发布/订阅），MinIO（S3兼容图片存储），EMQX 消息中间件。
 
 ### 后端分层结构 (`backend/app/`)
@@ -254,6 +265,12 @@ worker/       # 长时间运行的异步任务 — telemetry_consumer, image_pro
 - **服务层封装**：所有业务逻辑集中在 `services/` 目录。API 路由只是薄适配层，不包含业务逻辑。
 - **API 响应信封**：统一格式 `{code: 0, message: "success", data: {...}}`。非零 code 代表错误（1001=参数错误，1002=未认证，2001=设备不存在 等）。
 - **存储抽象**：`StorageBackend` 抽象基类，有 `LocalStorageBackend` 和 `MinIOStorageBackend` 两种实现，通过 `settings.STORAGE_BACKEND` 切换。
+- **MQTT 主题路由**：`services/mqtt_service.py` 中注册了四个通配符主题处理器：
+  - `smartpot/+/telemetry` → `_handle_telemetry` — 传感器数据入库 + WebSocket 推送
+  - `smartpot/+/status` → `_handle_device_status` — 设备在线状态更新 + 离线告警
+  - `smartpot/+/event/watering` → `_handle_watering_event` — 浇水事件记录
+  - `smartpot/+/response/+` → `_handle_command_response` — 指令 ACK 处理（30秒超时）
+- **开发模式 MQTT Broker**：`core/local_broker.py` 在进程内运行基于 `amqtt` 的 MQTT 3.1.1 代理，无需安装 EMQX/Mosquitto。匿名认证，最大50连接。
 
 ### 前端分层结构 (`frontend/src/`)
 
@@ -269,6 +286,7 @@ contexts/     # AuthContext（JWT token + user 状态，持久化到 localStorag
 - **API 客户端**：Axios 实例基路径 `/v1`，请求拦截器注入 JWT，响应拦截器检查 `code` 字段、处理401跳转登录、解析422验证错误。
 - **认证流程**：`login()` 将 token 和 user 信息同时存入 localStorage 和 React state。`ProtectedRoute` 组件检查 token 是否存在来决定是否放行。
 - **WebSocket**：单个可复用 Hook，断线5秒自动重连。各页面通过 `deviceId` 过滤关注的事件。
+- **WebSocket 事件类型**：`telemetry_update`、`device_status`、`watering_complete`、`command_update` — 通过 `ws_manager.send_to_user()` 按用户广播。
 - **设计系统**：`styles/global.css` 中定义 CSS 自定义属性 — "有机仿生"主题，植物养护色板（主色 `#15803D`、背景 `#F0FDF4`、强调色 `#D97706`），Lora+Raleway 字体，4px 间距体系，带绿色调的柔和阴影。
 
 ### 病害检测流水线
@@ -291,11 +309,13 @@ contexts/     # AuthContext（JWT token + user 状态，持久化到 localStorag
 
 ### 关键配置 (`backend/app/config.py`)
 
-`Settings` 类从 `.env` 文件加载配置，提供 `IS_DEV`/`IS_PROD`/`USE_SQLITE` 便捷属性。开发模式使用 SQLite + 本地存储 + 自动播种演示数据。MQTT 代理默认地址 `localhost:1883`。JWT 默认有效期7天。
+`Settings` 类从 `.env` 文件加载配置，提供 `IS_DEV`/`IS_PROD`/`USE_SQLITE` 便捷属性。开发模式使用 SQLite + 本地存储 + 内嵌 `amqtt` MQTT Broker + 自动播种演示数据。MQTT 代理默认地址 `localhost:1883`。JWT 默认有效期7天。
 
 ### 重要约束和踩坑记录
 
 - **`datetime.UTC` 陷阱**：Python 3.14 中 `datetime.datetime` 类没有 `UTC` 属性。应使用 `from datetime import UTC` 直接引用 `UTC`，而非 `datetime.UTC`。
 - **SQLAlchemy 会话选择**：`AsyncConnection`（通过 `engine.begin()` 获取）不支持 ORM 的 `add_all()` 方法。操作 ORM 对象必须使用 `get_sessionmaker()` 返回的 `AsyncSession`。
+- **SQLite 写锁**：`core/database.py` 导出 `db_write_lock`（`asyncio.Lock`）— 所有 SQLite 写操作必须使用 `async with db_write_lock:` 包裹，避免并发写冲突。只读操作使用 `get_db_readonly()`，不持有锁。
 - **前端颜色使用规范**：使用 Ant Design 5 组件时，避免在组件中硬编码颜色值，统一使用 `var(--color-*)` CSS 变量以保持主题一致性。
 - **WebSocket 连接路径**：Vite 配置中的 `/ws` 代理规则实际未被使用；`useWebSocket` Hook 直接连接 `hostname:8000/v1/ws`，绕过了 Vite 代理。
+- **`amqtt` 依赖**：开发模式内嵌 MQTT Broker 需要 `amqtt` 包，但未包含在 `pyproject.toml` 中，需单独 `pip install amqtt` 安装。

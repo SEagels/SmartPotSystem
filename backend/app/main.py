@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
     _telemetry_task = asyncio.create_task(_safe_start_telemetry())
     _image_task = asyncio.create_task(_safe_start_image_processor())
 
+    # 自动补水检查（基于植物推荐湿度阈值，每60秒轮询）
+    _auto_water_task = asyncio.create_task(_safe_start_auto_watering())
+    # 定时拍照调度（按设备photo_schedule触发，每30秒检查）
+    _photo_schedule_task = asyncio.create_task(_safe_start_photo_scheduler())
+
     # 定时养护报告生成器仅在正式环境运行（避免开发时频繁生成）
     if settings.IS_PROD:
         from app.worker.report_generator import start_report_generator, stop_report_generator
@@ -51,8 +56,12 @@ async def lifespan(app: FastAPI):
     yield  # ← 应用在此处正式对外服务
 
     # 关闭阶段：按依赖顺序反向清理（先停数据生产者，再断开连接，最后释放资源）
+    from app.worker.auto_watering import stop_auto_watering
     from app.worker.image_processor import stop_image_processor
+    from app.worker.photo_scheduler import stop_photo_scheduler
     from app.worker.telemetry_consumer import stop_telemetry_consumer
+    await stop_auto_watering()
+    await stop_photo_scheduler()
     await stop_telemetry_consumer()
     await stop_image_processor()
 
@@ -90,6 +99,24 @@ async def _safe_start_image_processor():
         await start_image_processor()
     except Exception:
         logger.exception("Failed to start image processor")
+
+
+async def _safe_start_auto_watering():
+    """安全启动自动补水检查器"""
+    from app.worker.auto_watering import start_auto_watering
+    try:
+        await start_auto_watering()
+    except Exception:
+        logger.exception("Failed to start auto-watering worker")
+
+
+async def _safe_start_photo_scheduler():
+    """安全启动定时拍照调度器"""
+    from app.worker.photo_scheduler import start_photo_scheduler
+    try:
+        await start_photo_scheduler()
+    except Exception:
+        logger.exception("Failed to start photo scheduler")
 
 
 app = FastAPI(

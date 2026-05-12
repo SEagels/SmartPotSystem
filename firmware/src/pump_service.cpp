@@ -7,8 +7,9 @@
 #include "config.h"
 #include <Arduino.h>
 
-static bool     s_running       = false;
-static uint32_t s_last_stop_ms  = 0;
+static bool                s_running       = false;
+static uint32_t            s_last_stop_ms  = 0;
+static pump_status_cb_t    s_status_cb     = nullptr;
 
 void pump_init() {
     pinMode(PUMP_PIN_IN, OUTPUT);
@@ -18,6 +19,14 @@ void pump_init() {
     Serial.println("[Pump] Initialized (GPIO47, Keyes130)");
 }
 
+void pump_set_status_callback(pump_status_cb_t cb) {
+    s_status_cb = cb;
+}
+
+static void _notify_status(bool running) {
+    if (s_status_cb) s_status_cb(running);
+}
+
 void pump_on() {
     if (!pump_can_run()) {
         Serial.println("[Pump] Cannot start: cooldown active");
@@ -25,6 +34,7 @@ void pump_on() {
     }
     digitalWrite(PUMP_PIN_IN, PUMP_ACTIVE_LEVEL);
     s_running = true;
+    _notify_status(true);
     Serial.println("[Pump] ON");
 }
 
@@ -32,6 +42,7 @@ void pump_off() {
     digitalWrite(PUMP_PIN_IN, PUMP_ACTIVE_LEVEL == HIGH ? LOW : HIGH);
     s_running = false;
     s_last_stop_ms = millis();
+    _notify_status(false);
     Serial.println("[Pump] OFF");
 }
 

@@ -17,6 +17,7 @@ void upload_watering_event(const char* trigger, uint32_t duration_ms,
                            float water_ml, float soil_before, float soil_after);
 void upload_cmd_response(const char* cmd_id, const char* status,
                          const char* detail);
+void upload_pump_status(bool running);
 void upload_device_online();
 bool upload_mqtt_connected();
 

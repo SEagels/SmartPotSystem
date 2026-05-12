@@ -36,29 +36,31 @@ async def _handle_telemetry(topic: str, payload: dict):
     logger.info(f"Telemetry received from {device_id}: temp={payload.get('sensors',{}).get('temperature')}")
 
     sessionmaker = get_sessionmaker()
+    _user_id = None
+    _telemetry = None
     try:
         async with db_write_lock:
             async with sessionmaker() as db:
-                telemetry = await ingest_telemetry(db, device_id, payload)
+                _telemetry = await ingest_telemetry(db, device_id, payload)
 
                 result = await db.execute(select(Device).where(Device.device_id == device_id))
                 device = result.scalar_one_or_none()
-                user_id = str(device.user_id) if device and device.user_id else None
+                _user_id = str(device.user_id) if device and device.user_id else None
 
                 await db.commit()
 
-            if user_id:
-                await ws_manager.send_to_user(user_id, {
-                    "event": "telemetry_update",
-                    "device_id": device_id,
-                    "timestamp": telemetry.time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "payload": {
-                        "temperature": telemetry.temperature,
-                        "humidity": telemetry.humidity,
-                        "soil_moisture": telemetry.soil_moisture,
-                        "light_intensity": telemetry.light_intensity,
-                    },
-                })
+        if _user_id and _telemetry:
+            await ws_manager.send_to_user(_user_id, {
+                "event": "telemetry_update",
+                "device_id": device_id,
+                "timestamp": _telemetry.time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "payload": {
+                    "temperature": _telemetry.temperature,
+                    "humidity": _telemetry.humidity,
+                    "soil_moisture": _telemetry.soil_moisture,
+                    "light_intensity": _telemetry.light_intensity,
+                },
+            })
     except Exception:
         logger.exception(f"Failed to handle telemetry from {device_id}")
 
@@ -69,6 +71,10 @@ async def _handle_device_status(topic: str, payload: dict):
     online = payload.get("online", False)
 
     sessionmaker = get_sessionmaker()
+    _user_id = None
+    _is_online = online
+    _fw = payload.get("firmware_version")
+    _pump_running = payload.get("pump_running")
     try:
         async with db_write_lock:
             async with sessionmaker() as db:
@@ -77,29 +83,33 @@ async def _handle_device_status(topic: str, payload: dict):
 
                 result = await db.execute(select(Device).where(Device.device_id == device_id))
                 device = result.scalar_one_or_none()
-                user_id = str(device.user_id) if device and device.user_id else None
+                _user_id = str(device.user_id) if device and device.user_id else None
 
                 await db.commit()
 
-            if user_id:
-                await ws_manager.send_to_user(user_id, {
-                    "event": "device_status",
-                    "device_id": device_id,
-                    "payload": {"online": online, "firmware_version": payload.get("firmware_version")},
-                })
+        if _user_id:
+            await ws_manager.send_to_user(_user_id, {
+                "event": "device_status",
+                "device_id": device_id,
+                "payload": {
+                    "online": _is_online,
+                    "firmware_version": _fw,
+                    "pump_running": _pump_running if _pump_running is not None else False,
+                },
+            })
 
-            if not online:
-                from app.services.alert_service import create_alert
-                async with db_write_lock:
-                    async with sessionmaker() as db2:
-                        result = await db2.execute(select(Device).where(Device.device_id == device_id))
-                        dev = result.scalar_one_or_none()
-                        if dev and dev.user_id:
-                            await create_alert(
-                                db2, device_id, dev.user_id, "device_offline", "warning",
-                                "设备离线", f"设备 {device_id} 已离线",
-                            )
-                            await db2.commit()
+        if not online and _user_id:
+            from app.services.alert_service import create_alert
+            async with db_write_lock:
+                async with sessionmaker() as db2:
+                    result = await db2.execute(select(Device).where(Device.device_id == device_id))
+                    dev = result.scalar_one_or_none()
+                    if dev and dev.user_id:
+                        await create_alert(
+                            db2, device_id, dev.user_id, "device_offline", "warning",
+                            "设备离线", f"设备 {device_id} 已离线",
+                        )
+                        await db2.commit()
     except Exception:
         logger.exception(f"Failed to handle device status from {device_id}")
 
@@ -109,6 +119,8 @@ async def _handle_watering_event(topic: str, payload: dict):
     device_id = parts[1]
 
     sessionmaker = get_sessionmaker()
+    _user_id = None
+    _ws_payload = None
     try:
         async with db_write_lock:
             async with sessionmaker() as db:
@@ -127,16 +139,18 @@ async def _handle_watering_event(topic: str, payload: dict):
 
                 result = await db.execute(select(Device).where(Device.device_id == device_id))
                 device = result.scalar_one_or_none()
-                user_id = str(device.user_id) if device and device.user_id else None
+                _user_id = str(device.user_id) if device and device.user_id else None
+
+                _ws_payload = {"trigger": event.trigger, "duration_ms": event.duration_ms, "water_pumped_ml": event.water_pumped_ml}
 
                 await db.commit()
 
-            if user_id:
-                await ws_manager.send_to_user(user_id, {
-                    "event": "watering_complete",
-                    "device_id": device_id,
-                    "payload": {"trigger": event.trigger, "duration_ms": event.duration_ms, "water_pumped_ml": event.water_pumped_ml},
-                })
+        if _user_id and _ws_payload:
+            await ws_manager.send_to_user(_user_id, {
+                "event": "watering_complete",
+                "device_id": device_id,
+                "payload": _ws_payload,
+            })
     except Exception:
         logger.exception(f"Failed to handle watering event from {device_id}")
 
@@ -151,6 +165,8 @@ async def _handle_command_response(topic: str, payload: dict):
         return
 
     sessionmaker = get_sessionmaker()
+    _user_id = None
+    _cmd_status = None
     try:
         async with db_write_lock:
             async with sessionmaker() as db:
@@ -161,23 +177,24 @@ async def _handle_command_response(topic: str, payload: dict):
                     cmd.status = payload.get("status", "executed")
                     cmd.response = json.dumps(payload)
                     cmd.completed_at = datetime.now(UTC)
+                _cmd_status = cmd.status if cmd else "unknown"
 
                 result = await db.execute(select(Device).where(Device.device_id == device_id))
                 device = result.scalar_one_or_none()
-                user_id = str(device.user_id) if device and device.user_id else None
+                _user_id = str(device.user_id) if device and device.user_id else None
 
                 await db.commit()
 
-            if user_id:
-                await ws_manager.send_to_user(user_id, {
-                    "event": "command_update",
-                    "device_id": device_id,
-                    "payload": {
-                        "cmd_id": cmd_id,
-                        "type": cmd_type,
-                        "status": cmd.status if cmd else "unknown",
-                        "response": payload,
-                    },
-                })
+        if _user_id:
+            await ws_manager.send_to_user(_user_id, {
+                "event": "command_update",
+                "device_id": device_id,
+                "payload": {
+                    "cmd_id": cmd_id,
+                    "type": cmd_type,
+                    "status": _cmd_status,
+                    "response": payload,
+                },
+            })
     except Exception:
         logger.exception(f"Failed to handle command response for {cmd_id}")

@@ -20,7 +20,7 @@ ONLINE_FRESHNESS_MINUTES = 10
 
 
 async def _is_device_really_online(db: AsyncSession, device_id: str) -> bool:
-    """判断设备在线：优先看遥测新鲜度，遥测过期直接判离线，无遥测时才回退到MQTT状态标记"""
+    """判断设备在线：优先看遥测新鲜度，过期或无遥测时回退到MQTT状态标记"""
     result = await db.execute(
         select(Telemetry.time)
         .where(Telemetry.device_id == device_id)
@@ -32,9 +32,7 @@ async def _is_device_really_online(db: AsyncSession, device_id: str) -> bool:
         cutoff = datetime.now(UTC) - timedelta(minutes=ONLINE_FRESHNESS_MINUTES)
         if row.time.replace(tzinfo=UTC) >= cutoff:
             return True
-        # 有遥测但过期 → 设备已离线，MqTT 状态消息可能因 retain/QoS0 未及时更新
-        return False
-    # 从未发过遥测 → 回退到 MQTT 状态消息标记
+    # 遥测过期或无遥测 → 回退到 MQTT 状态消息标记（设备重连后数秒内即可更新）
     d = await db.execute(select(Device.online).where(Device.device_id == device_id))
     dr = d.first()
     return bool(dr[0]) if dr else False

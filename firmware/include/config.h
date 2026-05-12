@@ -92,7 +92,7 @@
 
 #define PUMP_ACTIVE_LEVEL           HIGH       // HIGH=active_high, LOW=active_low
 #define PUMP_MAX_DURATION_MS        30000      // 单次最大运行时长
-#define PUMP_COOLDOWN_MS            120000     // 两次补水最小间隔 (2 分钟)
+#define PUMP_COOLDOWN_MS            10000      // 两次补水最小间隔 (10 秒)
 #define PUMP_FLOW_RATE_ML_PER_S     10         // 水泵流量 (mL/s, 近似值)
 
 // ============================================================

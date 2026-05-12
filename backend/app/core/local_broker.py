@@ -43,6 +43,7 @@ async def stop_local_broker():
     global _broker, _task
     if _broker:
         logger.info("Shutting down local MQTT broker...")
+        await asyncio.sleep(0.5)  # flush pending messages before shutdown
         await _broker.shutdown()
         _broker = None
     if _task and not _task.done():

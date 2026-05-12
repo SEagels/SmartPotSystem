@@ -49,6 +49,7 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         const char* src = doc["source"] | "manual";
 
         if (!pump_can_run()) {
+            Serial.println("[Cmd] Water REJECTED: pump in cooldown");
             upload_cmd_response(cmd_id, "rejected", "{\"reason\":\"cooldown\"}");
             return;
         }
@@ -108,6 +109,7 @@ void upload_init() {
     s_mqtt.setKeepAlive(MQTT_KEEPALIVE_S);
     Serial.printf("[Upload] MQTT broker: %s:%d\n", MQTT_BROKER_HOST, MQTT_BROKER_PORT);
 #endif
+    pump_set_status_callback(upload_pump_status);
 }
 
 void upload_loop() {
@@ -351,6 +353,22 @@ void upload_device_online() {
     if (s_mqtt_ok) {
         s_mqtt.publish(MQTT_TOPIC_STATUS, payload.c_str(), true);
         Serial.println("[MQTT] >> device online (retain)");
+    }
+#endif
+}
+
+void upload_pump_status(bool running) {
+#if MOCK_MODE
+    Serial.printf("[Upload] MOCK pump_status: %s\n", running ? "ON" : "OFF");
+#else
+    if (s_mqtt_ok) {
+        JsonDocument doc;
+        doc["online"] = true;
+        doc["pump_running"] = running;
+        String payload;
+        serializeJson(doc, payload);
+        s_mqtt.publish(MQTT_TOPIC_STATUS, payload.c_str(), true);
+        Serial.printf("[Upload] pump_status: %s\n", running ? "ON" : "OFF");
     }
 #endif
 }
