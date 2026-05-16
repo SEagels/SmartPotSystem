@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -11,9 +11,13 @@ from app.core.database import db_write_lock, get_sessionmaker
 from app.core.mqtt import mqtt_manager
 from app.core.websocket_manager import ws_manager
 from app.models.device import Device
+from app.models.plant import PlantType
 from app.models.watering import WateringEvent
+from app.services import command_service
 
 logger = logging.getLogger(__name__)
+_LAST_CONFIG_SYNC: dict[str, datetime] = {}
+CONFIG_SYNC_INTERVAL = timedelta(minutes=5)
 
 
 def setup_mqtt_handlers():
@@ -45,6 +49,11 @@ async def _handle_telemetry(topic: str, payload: dict):
 
                 result = await db.execute(select(Device).where(Device.device_id == device_id))
                 device = result.scalar_one_or_none()
+                if device:
+                    device.online = True
+                    device.last_seen_at = _telemetry.time
+                    if _telemetry.firmware_version:
+                        device.firmware_version = _telemetry.firmware_version
                 _user_id = str(device.user_id) if device and device.user_id else None
 
                 await db.commit()
@@ -75,6 +84,7 @@ async def _handle_device_status(topic: str, payload: dict):
     _is_online = online
     _fw = payload.get("firmware_version")
     _pump_running = payload.get("pump_running")
+    should_sync_config = False
     try:
         async with db_write_lock:
             async with sessionmaker() as db:
@@ -84,6 +94,9 @@ async def _handle_device_status(topic: str, payload: dict):
                 result = await db.execute(select(Device).where(Device.device_id == device_id))
                 device = result.scalar_one_or_none()
                 _user_id = str(device.user_id) if device and device.user_id else None
+                should_sync_config = bool(online and device and device.user_id and device.plant_type)
+                if should_sync_config:
+                    await _sync_runtime_config_if_needed(db, device)
 
                 await db.commit()
 
@@ -112,6 +125,44 @@ async def _handle_device_status(topic: str, payload: dict):
                         await db2.commit()
     except Exception:
         logger.exception(f"Failed to handle device status from {device_id}")
+
+
+def _runtime_config_from_plant(plant: PlantType | None) -> dict | None:
+    if not plant or not plant.watering_cfg:
+        return None
+    try:
+        watering_cfg = json.loads(plant.watering_cfg)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+    trigger = watering_cfg.get("trigger_soil_moisture")
+    duration = watering_cfg.get("default_duration_ms")
+    if trigger is None:
+        return None
+    return {
+        "auto_water_enabled": True,
+        "auto_water_soil_moisture_min": float(trigger),
+        "soil_moisture_threshold": float(trigger),
+        "auto_water_duration_ms": int(duration or 5000),
+        "default_duration_ms": int(duration or 5000),
+    }
+
+
+async def _sync_runtime_config_if_needed(db, device: Device) -> None:
+    now = datetime.now(UTC)
+    last_sync = _LAST_CONFIG_SYNC.get(device.device_id)
+    if last_sync and now - last_sync < CONFIG_SYNC_INTERVAL:
+        return
+
+    plant_result = await db.execute(select(PlantType).where(PlantType.plant_type == device.plant_type))
+    config = _runtime_config_from_plant(plant_result.scalar_one_or_none())
+    if not config:
+        return
+
+    device.soil_moisture_threshold = config["soil_moisture_threshold"]
+    device.watering_max_duration_ms = config["auto_water_duration_ms"]
+    await command_service.send_config_command(db, device.device_id, device.user_id, config)
+    _LAST_CONFIG_SYNC[device.device_id] = now
 
 
 async def _handle_watering_event(topic: str, payload: dict):

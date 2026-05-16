@@ -86,7 +86,7 @@ async def get_history(
 async def _get_history_timescale(
     db, device_id: str, metric: str, start: datetime, end: datetime, interval: str
 ) -> dict:
-    bucket_map = {"5m": "5 minutes", "1h": "1 hour", "6h": "6 hours", "1d": "1 day"}
+    bucket_map = {"5m": "5 minutes", "15m": "15 minutes", "30m": "30 minutes", "1h": "1 hour", "6h": "6 hours", "1d": "1 day"}
     bucket = bucket_map.get(interval, "1 hour")
     sql = text(f"""
         SELECT time_bucket(:bucket, time) AS bucket,
@@ -94,7 +94,7 @@ async def _get_history_timescale(
                MIN({metric}) AS min_val,
                MAX({metric}) AS max_val
         FROM telemetry
-        WHERE device_id = :device_id AND time BETWEEN :start AND :end
+        WHERE device_id = :device_id AND time BETWEEN :start AND :end AND {metric} IS NOT NULL
         GROUP BY bucket ORDER BY bucket
     """)
     result = await db.execute(sql, {"bucket": bucket, "device_id": device_id, "start": start, "end": end})
@@ -120,7 +120,7 @@ async def _get_history_sqlite(
         return {"metric": metric, "unit": "", "interval": interval, "data_points": []}
 
     buckets: dict[str, list[float]] = {}
-    minutes_map = {"5m": 5, "1h": 60, "6h": 360, "1d": 1440}
+    minutes_map = {"5m": 5, "15m": 15, "30m": 30, "1h": 60, "6h": 360, "1d": 1440}
     bucket_minutes = minutes_map.get(interval, 60)
 
     for row in rows:

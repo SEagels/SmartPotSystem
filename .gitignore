@@ -5,3 +5,8 @@ __pycache__/
 .env
 backend/.env
 backend/storage/report_cache/
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/local.properties

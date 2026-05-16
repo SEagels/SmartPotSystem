@@ -16,6 +16,7 @@
 #include "sensor_service.h"
 #include "pump_service.h"
 #include "camera_service.h"
+#include "runtime_config.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -27,6 +28,7 @@
 static WiFiClient s_mqtt_wifi;
 static PubSubClient      s_mqtt(s_mqtt_wifi);
 static unsigned long     s_last_mqtt_retry = 0;
+static unsigned long     s_last_status_publish = 0;
 static bool              s_mqtt_ok = false;
 static uint32_t          s_telemetry_seq = 0;
 
@@ -85,10 +87,39 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         upload_cmd_response(cmd_id, ok ? "executed" : "failed", d.c_str());
     }
     else if (strstr(topic, "/command/config")) {
-        JsonDocument changes = doc["changes"];
-        Serial.println("[Config] Updated:");
-        serializeJsonPretty(changes, Serial);
-        upload_cmd_response(cmd_id, "applied", "{}");
+        JsonVariant cfg = doc["changes"];
+        if (cfg.isNull()) cfg = doc.as<JsonVariant>();
+
+        if (!cfg["auto_water_enabled"].isNull()) {
+            runtime_set_auto_water_enabled(cfg["auto_water_enabled"] | true);
+        }
+        if (!cfg["auto_water_soil_moisture_min"].isNull()) {
+            runtime_set_auto_water_soil_moisture_min(cfg["auto_water_soil_moisture_min"] | AUTO_WATER_SOIL_MOISTURE_MIN);
+        } else if (!cfg["soil_moisture_threshold"].isNull()) {
+            runtime_set_auto_water_soil_moisture_min(cfg["soil_moisture_threshold"] | AUTO_WATER_SOIL_MOISTURE_MIN);
+        } else if (!cfg["trigger_soil_moisture"].isNull()) {
+            runtime_set_auto_water_soil_moisture_min(cfg["trigger_soil_moisture"] | AUTO_WATER_SOIL_MOISTURE_MIN);
+        }
+        if (!cfg["auto_water_temperature_max"].isNull()) {
+            runtime_set_auto_water_temperature_max(cfg["auto_water_temperature_max"] | AUTO_WATER_TEMPERATURE_MAX);
+        }
+        if (!cfg["auto_water_duration_ms"].isNull()) {
+            runtime_set_auto_water_duration_ms(cfg["auto_water_duration_ms"] | (uint32_t)AUTO_WATER_DURATION_MS);
+        } else if (!cfg["default_duration_ms"].isNull()) {
+            runtime_set_auto_water_duration_ms(cfg["default_duration_ms"] | (uint32_t)AUTO_WATER_DURATION_MS);
+        }
+
+        JsonDocument r;
+        r["auto_water_enabled"] = runtime_auto_water_enabled();
+        r["auto_water_soil_moisture_min"] = runtime_auto_water_soil_moisture_min();
+        r["auto_water_temperature_max"] = runtime_auto_water_temperature_max();
+        r["auto_water_duration_ms"] = runtime_auto_water_duration_ms();
+        String d;
+        serializeJson(r, d);
+
+        Serial.println("[Config] Applied:");
+        Serial.println(d);
+        upload_cmd_response(cmd_id, "applied", d.c_str());
     }
     else if (strstr(topic, "/command/sync")) {
         Serial.println("[Sync] Immediate sensor read + telemetry upload");
@@ -142,6 +173,10 @@ void upload_loop() {
         }
     } else {
         s_mqtt.loop();
+        if (millis() - s_last_status_publish >= MQTT_STATUS_INTERVAL_MS) {
+            s_last_status_publish = millis();
+            upload_device_online();
+        }
     }
 #endif
 }
@@ -343,6 +378,9 @@ void upload_device_online() {
     doc["firmware_version"] = FIRMWARE_VERSION;
     doc["wifi_rssi"] = wifi_get_rssi();
     doc["free_heap"] = ESP.getFreeHeap();
+    doc["auto_water_enabled"] = runtime_auto_water_enabled();
+    doc["auto_water_soil_moisture_min"] = runtime_auto_water_soil_moisture_min();
+    doc["auto_water_duration_ms"] = runtime_auto_water_duration_ms();
 
     String payload;
     serializeJson(doc, payload);

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.datetime_utils import format_utc_datetime, parse_iso_datetime
 from app.models.detection import Detection
 from app.models.image import Image
 
@@ -18,9 +17,9 @@ async def list_diseases(
 ) -> list[dict]:
     q = select(Detection).where(Detection.device_id == device_id)
     if start:
-        q = q.where(Detection.timestamp >= datetime.fromisoformat(start))
+        q = q.where(Detection.timestamp >= parse_iso_datetime(start))
     if end:
-        q = q.where(Detection.timestamp <= datetime.fromisoformat(end))
+        q = q.where(Detection.timestamp <= parse_iso_datetime(end))
     q = q.order_by(Detection.timestamp.desc()).limit(limit)
     result = await db.execute(q)
     dets = result.scalars().all()
@@ -36,7 +35,7 @@ async def list_diseases(
         output.append({
             "detection_id": d.detection_id,
             "image_id": d.image_id,
-            "timestamp": d.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if d.timestamp else None,
+            "timestamp": format_utc_datetime(d.timestamp),
             "disease_class": d.disease_class,
             "disease_name": d.disease_name,
             "confidence": d.confidence,

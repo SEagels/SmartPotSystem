@@ -18,5 +18,5 @@ export async function getDiseaseHistory(
   params: { start?: string; end?: string },
 ) {
   const res = await client.get(`/devices/${deviceId}/diseases`, { params });
-  return res.data.data as DiseaseRecord[];
+  return Array.isArray(res.data.data) ? (res.data.data as DiseaseRecord[]) : [];
 }

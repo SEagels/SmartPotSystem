@@ -30,3 +30,20 @@ async def create_plant(data: dict, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=409, detail="品种代码已存在")
     plant = await plant_service.create_plant(db, data)
     return {"code": 0, "message": "创建成功", "data": plant}
+
+
+@router.put("/{plant_type}")
+async def update_plant(plant_type: str, data: dict, db: AsyncSession = Depends(get_db)):
+    data.pop("plant_type", None)
+    plant = await plant_service.update_plant(db, plant_type, data)
+    if not plant:
+        return {"code": 3001, "message": "品种不存在", "data": None}
+    return {"code": 0, "message": "更新成功", "data": plant}
+
+
+@router.delete("/{plant_type}")
+async def delete_plant(plant_type: str, db: AsyncSession = Depends(get_db)):
+    deleted = await plant_service.delete_plant(db, plant_type)
+    if not deleted:
+        return {"code": 3001, "message": "品种不存在", "data": None}
+    return {"code": 0, "message": "删除成功", "data": None}

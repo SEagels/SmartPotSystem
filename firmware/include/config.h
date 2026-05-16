@@ -20,7 +20,7 @@
 // ============================================================
 
 #define DEVICE_ID           "SP000001"        // 设备唯一 ID (出厂烧录)
-#define FIRMWARE_VERSION    "v1.0.0"
+#define FIRMWARE_VERSION    "v1.0.1-auto-config"
 
 // ============================================================
 // WiFi 配置
@@ -52,6 +52,7 @@
 #define MQTT_CLIENT_ID      DEVICE_ID
 #define MQTT_KEEPALIVE_S    60
 #define MQTT_RECONNECT_INTERVAL_MS  5000
+#define MQTT_STATUS_INTERVAL_MS     30000      // 在线心跳间隔，后端据此快速判断离线
 
 // MQTT 主题模板
 #define MQTT_TOPIC_TELEMETRY       "smartpot/" DEVICE_ID "/telemetry"

@@ -24,10 +24,10 @@ class LoginBody(BaseModel):
 @router.post("/register")
 async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
     try:
-        user, token = await auth_service.register(db, body.username, body.password, body.phone)
+        user, token, expires_at = await auth_service.register(db, body.username, body.password, body.phone)
         return {
             "code": 0, "message": "success",
-            "data": {"user_id": str(user.id), "username": user.username, "token": token},
+            "data": {"user_id": str(user.id), "username": user.username, "token": token, "expires_at": expires_at},
         }
     except ValueError as e:
         return {"code": 1001, "message": str(e), "data": None}
@@ -36,10 +36,10 @@ async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
 @router.post("/login")
 async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
     try:
-        user, token = await auth_service.login(db, body.username, body.password)
+        user, token, expires_at = await auth_service.login(db, body.username, body.password)
         return {
             "code": 0, "message": "success",
-            "data": {"user_id": str(user.id), "username": user.username, "token": token},
+            "data": {"user_id": str(user.id), "username": user.username, "token": token, "expires_at": expires_at},
         }
     except ValueError as e:
         return {"code": 1001, "message": str(e), "data": None}

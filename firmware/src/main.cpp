@@ -26,6 +26,7 @@
 #include "pump_service.h"
 #include "upload_service.h"
 #include "http_server.h"
+#include "runtime_config.h"
 
 // 定时器
 static unsigned long s_last_sensor    = 0;
@@ -33,20 +34,19 @@ static unsigned long s_last_telemetry = 0;
 static unsigned long s_last_status    = 0;
 
 // 自动补水
-static bool s_auto_water = true;
-
 static void check_auto_watering() {
-    if (!s_auto_water || !pump_can_run()) return;
+    if (!runtime_auto_water_enabled() || !pump_can_run()) return;
 
     SensorData d = sensors_get_latest();
     if (!d.valid) return;
-    if (d.temperature > AUTO_WATER_TEMPERATURE_MAX) return;
+    if (d.temperature > runtime_auto_water_temperature_max()) return;
 
-    if (d.soil_moisture < AUTO_WATER_SOIL_MOISTURE_MIN) {
+    float threshold = runtime_auto_water_soil_moisture_min();
+    if (d.soil_moisture < threshold) {
         Serial.printf("[AutoWater] Soil %.1f%% < %.1f%%\n",
-                      d.soil_moisture, AUTO_WATER_SOIL_MOISTURE_MIN);
+                      d.soil_moisture, threshold);
         float sb = d.soil_moisture;
-        uint32_t actual = pump_run(AUTO_WATER_DURATION_MS);
+        uint32_t actual = pump_run(runtime_auto_water_duration_ms());
         float sa = soil_moisture_read();
         float ml = pump_estimate_volume(actual);
         upload_watering_event("auto", actual, ml, sb, sa);
@@ -99,6 +99,7 @@ void setup() {
     if (!camera_init())
         Serial.println("*** Camera FAILED! Photo disabled. ***");
     pump_init();
+    runtime_config_init();
     upload_init();
     http_server_init();
 

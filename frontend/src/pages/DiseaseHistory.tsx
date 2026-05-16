@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Spin, Empty, Table, Tag, Button } from 'antd';
+import { Alert, Card, Typography, Spin, Empty, Table, Tag, Button } from 'antd';
 import { getDiseaseHistory, type DiseaseRecord } from '../api/diseases';
 import { DISEASE_NAME_MAP } from '../utils/constants';
 import { formatDateTime, daysAgo } from '../utils/format';
@@ -18,12 +18,18 @@ export default function DiseaseHistory() {
   const navigate = useNavigate();
   const [records, setRecords] = useState<DiseaseRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!deviceId) return;
+    setLoading(true);
+    setError(null);
     getDiseaseHistory(deviceId, { start: daysAgo(30), end: new Date().toISOString() })
       .then(setRecords)
-      .catch(() => setRecords([]))
+      .catch((e: unknown) => {
+        setRecords([]);
+        setError(e instanceof Error ? e.message : '病害历史数据加载失败');
+      })
       .finally(() => setLoading(false));
   }, [deviceId]);
 
@@ -68,17 +74,29 @@ export default function DiseaseHistory() {
         ← 返回设备
       </Button>
       <Title level={4}>病害检测历史</Title>
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          message="数据加载失败"
+          description={error}
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <Card bordered={false} style={{ borderRadius: 12 }}>
-        {records.length === 0 ? (
+        {!error && records.length === 0 ? (
           <Empty description="近30天无病害记录" />
-        ) : (
+        ) : records.length > 0 ? (
           <Table
             dataSource={records}
             columns={columns}
             rowKey="detection_id"
             pagination={{ pageSize: 20 }}
             size="middle"
+            scroll={{ x: 640 }}
           />
+        ) : (
+          <Empty description="暂无可显示的数据" />
         )}
       </Card>
     </div>

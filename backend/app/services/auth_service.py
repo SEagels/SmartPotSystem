@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.device import Device
 from app.models.user import User
 
 
-async def register(db: AsyncSession, username: str, password: str, phone: str | None) -> tuple[User, str]:
+def _token_expires_at() -> str:
+    expires = datetime.now(UTC) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    return expires.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+async def register(db: AsyncSession, username: str, password: str, phone: str | None) -> tuple[User, str, str]:
     result = await db.execute(select(User).where(User.username == username))
     if result.scalar_one_or_none():
         raise ValueError("用户名已存在")
@@ -16,16 +24,16 @@ async def register(db: AsyncSession, username: str, password: str, phone: str | 
     db.add(user)
     await db.flush()
     token = create_access_token(str(user.id))
-    return user, token
+    return user, token, _token_expires_at()
 
 
-async def login(db: AsyncSession, username: str, password: str) -> tuple[User, str]:
+async def login(db: AsyncSession, username: str, password: str) -> tuple[User, str, str]:
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
     if not user or not verify_password(password, user.password_hash):
         raise ValueError("用户名或密码错误")
     token = create_access_token(str(user.id))
-    return user, token
+    return user, token, _token_expires_at()
 
 
 async def get_profile(db: AsyncSession, user_id: str) -> dict:

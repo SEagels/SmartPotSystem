@@ -16,6 +16,7 @@ class DeviceListItem(BaseModel):
     plant_type: str | None = None
     plant_type_name: str | None = None
     online: bool = False
+    thumbnail_url: str | None = None
     latest_telemetry: LatestTelemetrySnippet | None = None
     has_active_alert: bool = False
     bound_at: str | None = None
@@ -42,6 +43,7 @@ class DeviceDetail(BaseModel):
     plant_type_name: str | None = None
     online: bool = False
     firmware_version: str | None = None
+    thumbnail_url: str | None = None
     latest_telemetry: dict | None = None
     thresholds: Thresholds | None = None
     photo_schedule: list[str] | None = None

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -93,6 +93,7 @@ async def init_db() -> None:
         from app.models.base import Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await _ensure_sqlite_schema(conn)
 
     # 开发环境：自动填充种子数据，失败不影响启动
     if settings.IS_DEV:
@@ -106,3 +107,11 @@ async def init_db() -> None:
             await seed_demo()
         except Exception:
             pass
+
+
+async def _ensure_sqlite_schema(conn) -> None:
+    """Small dev-mode schema patches for databases created before new columns existed."""
+    result = await conn.execute(text("PRAGMA table_info(devices)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "last_seen_at" not in columns:
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN last_seen_at DATETIME"))

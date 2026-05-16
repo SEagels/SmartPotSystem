@@ -139,8 +139,8 @@ app.include_router(router)
 
 # 挂载静态文件目录（病害图片等）
 _static_dir = Path(__file__).resolve().parent.parent / "storage" / "images"
-if _static_dir.exists():
-    app.mount("/static/images", StaticFiles(directory=str(_static_dir)), name="static_images")
+_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static/images", StaticFiles(directory=str(_static_dir)), name="static_images")
 
 
 @app.get("/health")

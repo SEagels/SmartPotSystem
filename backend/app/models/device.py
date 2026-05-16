@@ -18,6 +18,7 @@ class Device(Base, TimestampMixin):
     plant_type: Mapped[str | None] = mapped_column(ForeignKey("plant_types.plant_type"), nullable=True)
     bind_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     online: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     firmware_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     photo_schedule: Mapped[str | None] = mapped_column(nullable=True)
     telemetry_interval_s: Mapped[int] = mapped_column(Integer, default=300)

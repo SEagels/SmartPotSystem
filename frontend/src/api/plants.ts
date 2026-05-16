@@ -42,3 +42,15 @@ export async function createPlant(data: CreatePlantData) {
   const res = await client.post('/plants', data);
   return res.data.data as PlantTypeItem;
 }
+
+export type UpdatePlantData = Omit<CreatePlantData, 'plant_type'>;
+
+export async function updatePlant(plantType: string, data: UpdatePlantData) {
+  const res = await client.put(`/plants/${plantType}`, data);
+  return res.data.data as PlantTypeItem;
+}
+
+export async function deletePlant(plantType: string) {
+  const res = await client.delete(`/plants/${plantType}`);
+  return res.data.data;
+}

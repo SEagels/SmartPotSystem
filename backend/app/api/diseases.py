@@ -18,5 +18,8 @@ async def list_diseases(
     end: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    data = await disease_service.list_diseases(db, device.device_id, start, end)
-    return {"code": 0, "message": "success", "data": data}
+    try:
+        data = await disease_service.list_diseases(db, device.device_id, start, end)
+        return {"code": 0, "message": "success", "data": data}
+    except ValueError as e:
+        return {"code": 1001, "message": str(e), "data": None}

@@ -6,6 +6,7 @@ export interface DeviceListItem {
   plant_type: string;
   plant_type_name: string;
   online: boolean;
+  thumbnail_url?: string | null;
   latest_telemetry: {
     temperature: number;
     humidity: number;
@@ -23,6 +24,7 @@ export interface DeviceDetail {
   plant_type_name: string;
   online: boolean;
   firmware_version: string;
+  thumbnail_url?: string | null;
   bound_at: string;
   bind_code: string;
   latest_telemetry: Record<string, unknown> | null;
@@ -41,6 +43,16 @@ export interface DeviceDetail {
   } | null;
 }
 
+export interface LanDeviceCandidate {
+  device_id: string;
+  ip: string;
+  firmware_version?: string | null;
+  wifi_rssi?: number | null;
+  uptime_s?: number | null;
+  mock_mode?: boolean | null;
+  pump_running?: boolean | null;
+}
+
 export async function getDevices() {
   const res = await client.get('/devices');
   return res.data.data as DeviceListItem[];
@@ -53,6 +65,16 @@ export async function getDevice(deviceId: string) {
 
 export async function bindDevice(deviceId: string, bindCode: string) {
   const res = await client.post('/devices/bind', { device_id: deviceId, bind_code: bindCode });
+  return res.data.data;
+}
+
+export async function discoverLanDevices(cidr?: string) {
+  const res = await client.get('/devices/lan-discover', { params: cidr ? { cidr } : undefined });
+  return Array.isArray(res.data.data) ? (res.data.data as LanDeviceCandidate[]) : [];
+}
+
+export async function bindLanDevice(deviceId: string, ip: string, name?: string) {
+  const res = await client.post('/devices/lan-bind', { device_id: deviceId, ip, name });
   return res.data.data;
 }
 

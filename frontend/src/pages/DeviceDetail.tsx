@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Typography, Tabs, Spin, Button, message, Image, Tag, Empty, Form, Input, Select, Popconfirm, Divider } from 'antd';
+import { Row, Col, Card, Typography, Tabs, Spin, Button, message, Image, Tag, Empty, Form, Input, Select, Popconfirm, Divider, DatePicker, Segmented, Space } from 'antd';
 import { ArrowLeftOutlined, CameraOutlined, PictureOutlined, FileTextOutlined, SyncOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import { getDevice, updateDevice, unbindDevice, type DeviceDetail as DeviceDetailType } from '../api/devices';
 import { getLatestTelemetry, type LatestTelemetry } from '../api/telemetry';
 import { sendPhotoCommand, sendSyncCommand } from '../api/control';
@@ -29,6 +31,8 @@ export default function DeviceDetail() {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [chartMetric, setChartMetric] = useState('temperature');
+  const [chartRange, setChartRange] = useState<'day' | 'week'>('day');
+  const [chartDate, setChartDate] = useState<Dayjs>(dayjs());
   const [chartData, setChartData] = useState<HistoryDataPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
 
@@ -75,15 +79,19 @@ export default function DeviceDetail() {
     }
   }, [deviceId]);
 
-  const fetchChart = useCallback(async (metric: string) => {
+  const fetchChart = useCallback(async (metric: string, range: 'day' | 'week', date: Dayjs) => {
     if (!deviceId) return;
     setChartLoading(true);
     try {
+      const start = range === 'day'
+        ? date.startOf('day')
+        : date.startOf('day').subtract(6, 'day');
+      const end = date.endOf('day');
       const data = await getHistory(deviceId, {
         metric,
-        start: new Date(Date.now() - 86400000).toISOString(),
-        end: new Date().toISOString(),
-        interval: '15m',
+        start: start.toISOString(),
+        end: end.toISOString(),
+        interval: range === 'day' ? '15m' : '1h',
       });
       setChartData(data.data_points);
     } catch {
@@ -98,8 +106,25 @@ export default function DeviceDetail() {
   }, [fetchDevice]);
 
   useEffect(() => {
-    fetchChart(chartMetric);
-  }, [chartMetric, fetchChart]);
+    if (!deviceId) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const [dev, latest] = await Promise.all([
+          getDevice(deviceId),
+          getLatestTelemetry(deviceId).catch(() => null),
+        ]);
+        setDevice((prev) => prev ? { ...prev, online: dev.online, firmware_version: dev.firmware_version } : dev);
+        setTelemetry(latest);
+      } catch {
+        // 在线状态轮询失败时保持当前页面，避免打断用户操作
+      }
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [deviceId]);
+
+  useEffect(() => {
+    fetchChart(chartMetric, chartRange, chartDate);
+  }, [chartMetric, chartRange, chartDate, fetchChart]);
 
   useEffect(() => {
     if (device) {
@@ -487,6 +512,37 @@ export default function DeviceDetail() {
       label: '历史曲线',
       children: (
         <div style={{ padding: '8px 0' }}>
+          <Card
+            size="small"
+            bordered={false}
+            style={{ borderRadius: 12, marginBottom: 12 }}
+          >
+            <Space wrap size={12} style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Space wrap size={12}>
+                <Segmented
+                  size="small"
+                  value={chartRange}
+                  onChange={(value) => setChartRange(value as 'day' | 'week')}
+                  options={[
+                    { value: 'day', label: '单日曲线' },
+                    { value: 'week', label: '一周曲线' },
+                  ]}
+                />
+                <DatePicker
+                  size="small"
+                  allowClear={false}
+                  value={chartDate}
+                  onChange={(value) => value && setChartDate(value)}
+                  disabledDate={(current) => Boolean(current && current > dayjs().endOf('day'))}
+                />
+              </Space>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {chartRange === 'day'
+                  ? `当前日期：${chartDate.format('YYYY-MM-DD')}`
+                  : `当前范围：${chartDate.subtract(6, 'day').format('YYYY-MM-DD')} 至 ${chartDate.format('YYYY-MM-DD')}`}
+              </Text>
+            </Space>
+          </Card>
           <SensorChart data={chartData} metric={chartMetric} onMetricChange={setChartMetric} loading={chartLoading} />
         </div>
       ),

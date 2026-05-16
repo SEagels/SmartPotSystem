@@ -1,4 +1,4 @@
-import { Card, Segmented } from 'antd';
+import { Card, Empty, Segmented } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { SENSOR_LABELS, SENSOR_UNITS } from '../utils/constants';
 import type { HistoryDataPoint } from '../api/telemetry';
@@ -84,7 +84,11 @@ export default function SensorChart({ data, metric, onMetricChange, loading }: P
         />
       }
     >
-      <ReactECharts option={option} style={{ height: 300 }} showLoading={loading} />
+      {!loading && data.length === 0 ? (
+        <Empty description="暂无历史数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '72px 0' }} />
+      ) : (
+        <ReactECharts option={option} style={{ height: 300 }} showLoading={loading} />
+      )}
     </Card>
   );
 }

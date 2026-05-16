@@ -70,7 +70,7 @@ async def send_photo_command(db: AsyncSession, device_id: str, user_id: uuid.UUI
 async def send_config_command(
     db: AsyncSession,
     device_id: str,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     config: dict,
 ) -> dict:
     cmd_id = f"CMD-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-CONFIG"

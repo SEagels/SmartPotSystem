@@ -12,30 +12,62 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert
 from app.models.device import Device
+from app.models.image import Image
 from app.models.plant import PlantType
 from app.models.telemetry import Telemetry
+from app.services import command_service
 
-# 设备在线判定阈值：若最近一次遥测距今超过此时间，视为离线
-ONLINE_FRESHNESS_MINUTES = 10
+# 设备在线判定阈值：固件每 30 秒发送一次 status 心跳，超过 75 秒视为离线。
+ONLINE_STALE_SECONDS = 75
+
+
+def _watering_config_from_plant(plant: PlantType | None) -> dict | None:
+    if not plant or not plant.watering_cfg:
+        return None
+    try:
+        watering_cfg = json.loads(plant.watering_cfg)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+    trigger = watering_cfg.get("trigger_soil_moisture")
+    duration = watering_cfg.get("default_duration_ms")
+    if trigger is None:
+        return None
+
+    return {
+        "auto_water_enabled": True,
+        "auto_water_soil_moisture_min": float(trigger),
+        "soil_moisture_threshold": float(trigger),
+        "auto_water_duration_ms": int(duration or 5000),
+        "default_duration_ms": int(duration or 5000),
+    }
+
+
+async def _apply_plant_watering_config(db: AsyncSession, device: Device, plant: PlantType | None) -> None:
+    config = _watering_config_from_plant(plant)
+    if not config:
+        return
+
+    device.soil_moisture_threshold = config["soil_moisture_threshold"]
+    device.watering_max_duration_ms = config["auto_water_duration_ms"]
+
+    if await _is_device_really_online(db, device.device_id):
+        await command_service.send_config_command(db, device.device_id, device.user_id, config)
 
 
 async def _is_device_really_online(db: AsyncSession, device_id: str) -> bool:
-    """判断设备在线：优先看遥测新鲜度，过期或无遥测时回退到MQTT状态标记"""
+    """判断设备在线：必须同时满足 MQTT 状态在线、最近心跳未过期。"""
     result = await db.execute(
-        select(Telemetry.time)
-        .where(Telemetry.device_id == device_id)
-        .order_by(Telemetry.time.desc())
-        .limit(1)
+        select(Device.online, Device.last_seen_at).where(Device.device_id == device_id)
     )
     row = result.first()
-    if row:
-        cutoff = datetime.now(UTC) - timedelta(minutes=ONLINE_FRESHNESS_MINUTES)
-        if row.time.replace(tzinfo=UTC) >= cutoff:
-            return True
-    # 遥测过期或无遥测 → 回退到 MQTT 状态消息标记（设备重连后数秒内即可更新）
-    d = await db.execute(select(Device.online).where(Device.device_id == device_id))
-    dr = d.first()
-    return bool(dr[0]) if dr else False
+    if not row or not row.online or not row.last_seen_at:
+        return False
+
+    last_seen = row.last_seen_at
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=UTC)
+    return last_seen >= datetime.now(UTC) - timedelta(seconds=ONLINE_STALE_SECONDS)
 
 
 async def list_user_devices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
@@ -68,11 +100,26 @@ async def list_user_devices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
             "plant_type": d.plant_type,
             "plant_type_name": plant_name,
             "online": online,
+            "thumbnail_url": await _get_latest_image_url(db, d.device_id),
             "latest_telemetry": latest_telemetry,
             "has_active_alert": (has_alert.scalar() or 0) > 0,
             "bound_at": d.bound_at.strftime("%Y-%m-%dT%H:%M:%SZ") if d.bound_at else None,
         })
     return output
+
+
+async def _get_latest_image_url(db: AsyncSession, device_id: str) -> str | None:
+    """获取设备最近一张图片，用作概览卡片缩略图。"""
+    result = await db.execute(
+        select(Image.url, Image.annotated_url, Image.storage_path)
+        .where(Image.device_id == device_id)
+        .order_by(Image.timestamp.desc())
+        .limit(1)
+    )
+    row = result.first()
+    if not row:
+        return None
+    return row.annotated_url or row.url or row.storage_path
 
 
 async def _get_latest_telemetry_snippet(db: AsyncSession, device_id: str) -> dict | None:
@@ -125,6 +172,7 @@ async def get_device_detail(db: AsyncSession, device_id: str, user_id: uuid.UUID
         "plant_type_name": plant_name,
         "online": await _is_device_really_online(db, device_id),
         "firmware_version": device.firmware_version,
+        "thumbnail_url": await _get_latest_image_url(db, device_id),
         "latest_telemetry": await _get_latest_telemetry_snippet(db, device_id),
         "thresholds": thresholds,
         "photo_schedule": photo_schedule,
@@ -184,8 +232,16 @@ async def update_device(db: AsyncSession, device_id: str, user_id: uuid.UUID, da
         raise ValueError("设备不存在")
     if "name" in data and data["name"]:
         device.name = data["name"]
-    if "plant_type" in data and data["plant_type"]:
-        device.plant_type = data["plant_type"]
+    if "plant_type" in data:
+        if data["plant_type"]:
+            pr = await db.execute(select(PlantType).where(PlantType.plant_type == data["plant_type"]))
+            plant = pr.scalar_one_or_none()
+            if not plant:
+                raise ValueError("植物品种不存在")
+            device.plant_type = data["plant_type"]
+            await _apply_plant_watering_config(db, device, plant)
+        else:
+            device.plant_type = None
     return device
 
 
@@ -203,11 +259,13 @@ async def unbind_device(db: AsyncSession, device_id: str, user_id: uuid.UUID) ->
 
 
 async def update_online_status(db: AsyncSession, device_id: str, online: bool, status_data: dict | None = None) -> None:
-    """MQTT设备状态回调：更新在线标识和固件版本"""
+    """MQTT设备状态回调：更新在线标识、最近心跳时间和固件版本"""
     result = await db.execute(select(Device).where(Device.device_id == device_id))
     device = result.scalar_one_or_none()
     if device:
         device.online = online
+        if online:
+            device.last_seen_at = datetime.now(UTC)
         if status_data:
             if status_data.get("firmware_version"):
                 device.firmware_version = status_data["firmware_version"]

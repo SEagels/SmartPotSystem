@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.datetime_utils import parse_iso_datetime
 from app.core.database import get_db
 from app.dependencies import get_current_device
 from app.models.device import Device
@@ -27,12 +28,12 @@ async def get_history(
     metric: str = Query(..., description="temperature/humidity/soil_moisture/light_intensity"),
     start: str = Query(..., description="ISO8601"),
     end: str = Query(..., description="ISO8601"),
-    interval: str = Query("1h", description="5m/1h/6h/1d"),
+    interval: str = Query("1h", description="5m/15m/30m/1h/6h/1d"),
     db: AsyncSession = Depends(get_db),
 ):
-    start_dt = datetime.fromisoformat(start)
-    end_dt = datetime.fromisoformat(end)
     try:
+        start_dt = parse_iso_datetime(start)
+        end_dt = parse_iso_datetime(end)
         data = await telemetry_service.get_history(db, device.device_id, metric, start_dt, end_dt, interval)
         return {"code": 0, "message": "success", "data": data}
     except ValueError as e:
