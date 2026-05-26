@@ -57,6 +57,9 @@ async def list_images(
         {
             "image_id": img.image_id,
             "url": img.url or img.storage_path,
+            "enhanced_url": img.enhanced_url,
+            "detection_source": img.detection_source,
+            "detection_image_url": image_service.get_detection_image_url(img),
             "annotated_url": img.annotated_url,
             "timestamp": img.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if img.timestamp else None,
             "photo_index": img.photo_index,
@@ -78,6 +81,19 @@ async def get_image_detail(
     try:
         detail = await image_service.get_image_detail(db, device.device_id, image_id)
         return {"code": 0, "message": "success", "data": detail}
+    except ValueError as e:
+        return {"code": 3001, "message": str(e), "data": None}
+
+
+@router.delete("/{image_id}")
+async def delete_image(
+    image_id: str,
+    device: Device = Depends(get_current_device),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await image_service.delete_image(db, device.device_id, image_id)
+        return {"code": 0, "message": "删除成功", "data": None}
     except ValueError as e:
         return {"code": 3001, "message": str(e), "data": None}
 

@@ -23,6 +23,9 @@ class ImageUploadResponse(BaseModel):
 class ImageListItem(BaseModel):
     image_id: str
     url: str | None = None
+    enhanced_url: str | None = None
+    detection_source: str | None = None
+    detection_image_url: str | None = None
     annotated_url: str | None = None
     timestamp: str
     photo_index: int = 1
@@ -41,8 +44,12 @@ class DetectionDetail(BaseModel):
 class ImageDetailResponse(BaseModel):
     image_id: str
     url: str | None = None
+    enhanced_url: str | None = None
+    detection_source: str | None = None
+    detection_image_url: str | None = None
     annotated_url: str | None = None
     timestamp: str
     photo_index: int = 1
     quality_score: float | None = None
+    light_condition: str | None = None
     detection: DetectionDetail | None = None

@@ -20,6 +20,7 @@ export const DISEASE_NAME_MAP: Record<string, string> = {
   'disease': '病害',
   'leaf mold': '叶霉病',
   'spider mites': '红蜘蛛',
+  suspected_abnormal: '疑似叶片异常',
 };
 
 // 传感器 metric key → 中文标签（SensorCard 标题 / SensorChart Segmented 选项）

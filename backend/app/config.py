@@ -26,8 +26,14 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "change-me-in-production-use-random-string"
     JWT_EXPIRE_MINUTES: int = 10080
 
-    YOLO_MODEL_PATH: str = "./models/yolov11-plant.onnx"
+    YOLO_MODEL_PATH: str = "./models/best.onnx"
     YOLO_PT_MODEL_PATH: str = "./models/best.pt"
+    YOLO_IMG_SIZE: int = 640
+    YOLO_CONF_THRESHOLD: float = 0.25
+    YOLO_IOU_THRESHOLD: float = 0.45
+    YOLO_AUGMENT: bool = True
+    DISEASE_HIGH_CONF_THRESHOLD: float = 0.25
+    DISEASE_SUSPECT_CONF_THRESHOLD: float = 0.0
     DEVICE_API_TOKEN: str = ""
     # ── 大模型养护建议配置 ──
     # LLM_API_KEY: 在此填写你的大模型 API Key（兼容 OpenAI 格式的 API 均可使用）

@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.alert import Alert
 from app.models.detection import Detection
 from app.models.image import Image
+from app.services.storage_service import STORAGE_DIR
 
 
 async def create_image(
@@ -81,8 +85,6 @@ async def update_detection_result(
 
 
 async def reset_images_for_re_detection(db: AsyncSession, device_id: str) -> int:
-    from sqlalchemy import delete as sql_delete
-
     result = await db.execute(
         select(Image).where(
             Image.device_id == device_id,
@@ -98,11 +100,56 @@ async def reset_images_for_re_detection(db: AsyncSession, device_id: str) -> int
 
     for img in images:
         img.detection_status = "pending_detection"
+        img.detection_source = None
         img.health_score = None
         img.disease_count = 0
 
     await db.flush()
     return len(images)
+
+
+def _static_url_to_local_path(value: str | None) -> Path | None:
+    if not value:
+        return None
+    if value.startswith("http://") or value.startswith("https://"):
+        return None
+    rel = value.replace("/static/images/", "", 1)
+    path = (STORAGE_DIR / rel).resolve()
+    root = STORAGE_DIR.resolve()
+    if path != root and root in path.parents:
+        return path
+    return None
+
+
+def _delete_local_file(value: str | None) -> None:
+    path = _static_url_to_local_path(value)
+    if path and path.exists() and path.is_file():
+        path.unlink()
+
+
+async def delete_image(db: AsyncSession, device_id: str, image_id: str) -> None:
+    result = await db.execute(
+        select(Image).where(Image.image_id == image_id, Image.device_id == device_id)
+    )
+    image = result.scalar_one_or_none()
+    if not image:
+        raise ValueError("图片不存在")
+
+    paths = {image.url, image.storage_path, image.enhanced_url, image.annotated_url}
+    await db.execute(sql_delete(Detection).where(Detection.image_id == image_id))
+    await db.execute(sql_delete(Alert).where(Alert.image_id == image_id))
+    await db.delete(image)
+    await db.flush()
+
+    for path in paths:
+        _delete_local_file(path)
+
+
+def get_detection_image_url(image: Image) -> str | None:
+    original_url = image.url or image.storage_path
+    if image.detection_source == "enhanced" and image.enhanced_url:
+        return image.enhanced_url
+    return original_url
 
 
 async def list_images(
@@ -152,6 +199,9 @@ async def get_image_detail(db: AsyncSession, device_id: str, image_id: str) -> d
     return {
         "image_id": image.image_id,
         "url": image.url or image.storage_path,
+        "enhanced_url": image.enhanced_url,
+        "detection_source": image.detection_source,
+        "detection_image_url": get_detection_image_url(image),
         "annotated_url": image.annotated_url,
         "timestamp": image.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if image.timestamp else None,
         "photo_index": image.photo_index,

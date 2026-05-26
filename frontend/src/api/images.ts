@@ -3,6 +3,9 @@ import client from './client';
 export interface ImageItem {
   image_id: string;
   url: string;
+  enhanced_url?: string | null;
+  detection_source?: 'original' | 'enhanced' | null;
+  detection_image_url?: string | null;
   annotated_url: string | null;
   timestamp: string;
   photo_index: number;
@@ -22,6 +25,8 @@ export interface DetectedDisease {
   class: string;
   name_zh: string;
   confidence: number;
+  confidence_level?: 'high' | 'suspect' | 'healthy' | null;
+  model_source?: 'yolo' | 'rule' | null;
   bbox: BBox;
   severity: string;
   recommendation: string;
@@ -30,10 +35,14 @@ export interface DetectedDisease {
 export interface ImageDetail {
   image_id: string;
   url: string;
+  enhanced_url?: string | null;
+  detection_source?: 'original' | 'enhanced' | null;
+  detection_image_url?: string | null;
   annotated_url: string | null;
   timestamp: string;
   photo_index: number;
   quality_score: number;
+  light_condition?: string | null;
   detection: {
     status: string;
     completed_at: string;
@@ -50,6 +59,11 @@ export async function getImages(deviceId: string, date?: string) {
 export async function getImageDetail(deviceId: string, imageId: string) {
   const res = await client.get(`/devices/${deviceId}/images/${imageId}`);
   return res.data.data as ImageDetail;
+}
+
+export async function deleteImage(deviceId: string, imageId: string) {
+  const res = await client.delete(`/devices/${deviceId}/images/${imageId}`);
+  return res.data;
 }
 
 export async function reDetectImages(deviceId: string) {

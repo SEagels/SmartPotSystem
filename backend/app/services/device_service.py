@@ -111,7 +111,7 @@ async def list_user_devices(db: AsyncSession, user_id: uuid.UUID) -> list[dict]:
 async def _get_latest_image_url(db: AsyncSession, device_id: str) -> str | None:
     """获取设备最近一张图片，用作概览卡片缩略图。"""
     result = await db.execute(
-        select(Image.url, Image.annotated_url, Image.storage_path)
+        select(Image.url, Image.enhanced_url, Image.annotated_url, Image.storage_path, Image.detection_source)
         .where(Image.device_id == device_id)
         .order_by(Image.timestamp.desc())
         .limit(1)
@@ -119,7 +119,9 @@ async def _get_latest_image_url(db: AsyncSession, device_id: str) -> str | None:
     row = result.first()
     if not row:
         return None
-    return row.annotated_url or row.url or row.storage_path
+    original_url = row.url or row.storage_path
+    detection_url = row.enhanced_url if row.detection_source == "enhanced" and row.enhanced_url else original_url
+    return row.annotated_url or detection_url
 
 
 async def _get_latest_telemetry_snippet(db: AsyncSession, device_id: str) -> dict | None:

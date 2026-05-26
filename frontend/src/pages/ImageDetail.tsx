@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Spin, Descriptions, Tag, Empty, Button, Row, Col } from 'antd';
+import { Card, Typography, Spin, Descriptions, Tag, Empty, Button, Row, Col, Segmented } from 'antd';
 import { getImageDetail, type ImageDetail as ImageDetailType } from '../api/images';
 import { DISEASE_NAME_MAP } from '../utils/constants';
 import { formatDateTime } from '../utils/format';
@@ -21,13 +21,17 @@ export default function ImageDetail() {
   const [data, setData] = useState<ImageDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgSize, setImgSize] = useState({ w: 800, h: 600 });
+  const [displayMode, setDisplayMode] = useState<'original' | 'enhanced'>('original');
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!deviceId || !imageId) return;
     getImageDetail(deviceId, imageId)
-      .then(setData)
+      .then((detail) => {
+        setData(detail);
+        setDisplayMode(detail.detection_source === 'enhanced' ? 'enhanced' : 'original');
+      })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [deviceId, imageId]);
@@ -47,6 +51,7 @@ export default function ImageDetail() {
 
   if (!data) return <Empty description="图像未找到" />;
 
+  const displayImageUrl = displayMode === 'enhanced' && data.enhanced_url ? data.enhanced_url : data.url;
   const displayWidth = containerRef.current?.clientWidth ?? 800;
   const displayHeight = (imgSize.h / imgSize.w) * displayWidth;
 
@@ -59,10 +64,23 @@ export default function ImageDetail() {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
           <Card bordered={false} style={{ borderRadius: 16 }}>
+            {data.enhanced_url && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <Segmented
+                  size="small"
+                  value={displayMode}
+                  onChange={(value) => setDisplayMode(value as 'original' | 'enhanced')}
+                  options={[
+                    { value: 'original', label: '原图' },
+                    { value: 'enhanced', label: '增强图' },
+                  ]}
+                />
+              </div>
+            )}
             <div ref={containerRef} style={{ position: 'relative', overflow: 'hidden', borderRadius: 8 }}>
               <img
                 ref={imgRef}
-                src={data.url}
+                src={displayImageUrl}
                 alt={`Plant photo ${data.photo_index}`}
                 style={{ width: '100%', display: 'block' }}
                 onLoad={handleImgLoad}
@@ -89,6 +107,9 @@ export default function ImageDetail() {
               <Descriptions.Item label="拍摄时间">{formatDateTime(data.timestamp)}</Descriptions.Item>
               <Descriptions.Item label="连拍序号">第 {data.photo_index} 张</Descriptions.Item>
               <Descriptions.Item label="质量评分">{data.quality_score?.toFixed(2) ?? '--'}</Descriptions.Item>
+              <Descriptions.Item label="光照状态">{data.light_condition ?? '--'}</Descriptions.Item>
+              <Descriptions.Item label="识别用图">{data.detection_source === 'enhanced' ? '增强图' : '原图'}</Descriptions.Item>
+              <Descriptions.Item label="增强处理">{data.enhanced_url ? '已生成增强图' : '未触发'}</Descriptions.Item>
             </Descriptions>
           </Card>
 

@@ -115,3 +115,10 @@ async def _ensure_sqlite_schema(conn) -> None:
     columns = {row[1] for row in result.fetchall()}
     if "last_seen_at" not in columns:
         await conn.execute(text("ALTER TABLE devices ADD COLUMN last_seen_at DATETIME"))
+
+    result = await conn.execute(text("PRAGMA table_info(images)"))
+    image_columns = {row[1] for row in result.fetchall()}
+    if "enhanced_url" not in image_columns:
+        await conn.execute(text("ALTER TABLE images ADD COLUMN enhanced_url VARCHAR(512)"))
+    if "detection_source" not in image_columns:
+        await conn.execute(text("ALTER TABLE images ADD COLUMN detection_source VARCHAR(16)"))

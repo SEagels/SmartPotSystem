@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Row, Col, Card, Typography, Spin, Empty, Image, Tag, DatePicker, Button, message, Popconfirm, Upload } from 'antd';
-import { EyeOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
-import { getImages, reDetectImages, uploadImage, type ImageItem } from '../api/images';
+import { DeleteOutlined, EyeOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { deleteImage, getImages, reDetectImages, uploadImage, type ImageItem } from '../api/images';
 import { formatDateTime, formatDate } from '../utils/format';
 
 const { Title, Text } = Typography;
@@ -22,6 +22,7 @@ export default function ImageGallery() {
   const [date, setDate] = useState<string | null>(null);
   const [reDetecting, setReDetecting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // 七天清除：记录最新访问时间
   useEffect(() => {
@@ -78,6 +79,20 @@ export default function ImageGallery() {
       message.error('上传失败');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDelete = async (imageId: string) => {
+    if (!deviceId) return;
+    setDeletingId(imageId);
+    try {
+      await deleteImage(deviceId, imageId);
+      message.success('图片已删除');
+      setImages((prev) => prev.filter((img) => img.image_id !== imageId));
+    } catch {
+      message.error('删除失败');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -140,7 +155,7 @@ export default function ImageGallery() {
                   cover={
                     <div style={{ height: 200, overflow: 'hidden', position: 'relative', background: '#f5f5f5' }}>
                       <Image
-                        src={img.url}
+                        src={img.detection_image_url || img.url}
                         alt={`Photo ${img.photo_index}`}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         preview={false}
@@ -152,6 +167,28 @@ export default function ImageGallery() {
                       >
                         {status.label}
                       </Tag>
+                      <Popconfirm
+                        title="删除图片？"
+                        description="会同时删除检测结果和由该图片产生的告警。"
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true, loading: deletingId === img.image_id }}
+                        onConfirm={(event) => {
+                          event?.stopPropagation();
+                          handleDelete(img.image_id);
+                        }}
+                        onCancel={(event) => event?.stopPropagation()}
+                      >
+                        <Button
+                          danger
+                          shape="circle"
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          loading={deletingId === img.image_id}
+                          onClick={(event) => event.stopPropagation()}
+                          style={{ position: 'absolute', top: 8, left: 8 }}
+                        />
+                      </Popconfirm>
                     </div>
                   }
                   onClick={() => navigate(`/devices/${deviceId}/images/${img.image_id}`)}

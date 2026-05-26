@@ -383,7 +383,7 @@ export default function DeviceDetail() {
                       cover={
                         <div style={{ height: 120, overflow: 'hidden', background: '#f5f5f5' }}>
                           <Image
-                            src={img.url}
+                            src={img.detection_image_url || img.url}
                             alt="叶片"
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             preview={{ mask: null }}
